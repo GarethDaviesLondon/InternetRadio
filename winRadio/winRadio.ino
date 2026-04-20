@@ -411,31 +411,67 @@ if (millis() - lastSlide > 30) {   // svakih 1 sekundu
 }
 
 // optional
-void audio_info(const char *info) {
-  Serial.print("info        ");
-  Serial.println(info);
-}
-void audio_id3data(const char *info) {  //id3 metadata
-  Serial.print("id3data     ");
-  Serial.println(info);
-}
+// ESP32-audioI2S callbacks. Kept silent so the serial CLI stays readable;
+// the LCD already shows station / title / bitrate.
+void audio_info(const char *info) { (void)info; }
+void audio_id3data(const char *info) { (void)info; }
 
 void audio_showstation(const char *info) {
-  Serial.print("station     ");
-  curStation=info;
-  canDraw=true;
+  curStation = info;
+  canDraw = true;
 }
 void audio_showstreamtitle(const char *info) {
-  Serial.print("streamtitle ");
-  Serial.println(info);
-  songPlaying=info;
-  canDraw=1;
+  songPlaying = info;
+  canDraw = 1;
 }
 void audio_bitrate(const char *info) {
-  Serial.print("bitrate     ");
-  Serial.println(info);
-  bitrate=(String(info).toInt()/1000);
-  
+  bitrate = (String(info).toInt() / 1000);
+}
+
+// --------------------------------------------------------------------------
+// Radio control API used by the serial CLI (see cli.h / cli.cpp).
+// --------------------------------------------------------------------------
+
+int         radioStationCount()         { return ns; }
+const char *radioStationUrl(int idx)    { return stations[idx].c_str(); }
+int         radioCurrentStation()       { return chosen; }
+
+void radioSelectStation(int idx) {
+  if (idx < 0) idx = 0;
+  if (idx >= ns) idx = ns - 1;
+  chosen = idx;
+  audio.connecttohost(stations[chosen].c_str());
+  canDraw = 1;
+}
+
+void radioNextStation() { radioSelectStation((chosen + 1) % ns); }
+void radioPrevStation() { radioSelectStation((chosen - 1 + ns) % ns); }
+
+int  radioVolume() { return volume; }
+void radioSetVolume(int v) {
+  if (v < 1) v = 1;
+  if (v > 5) v = 5;
+  volume = v;
+  audio.setVolume(volume * 4);
+  canDraw = 1;
+}
+
+long        radioBitrate()     { return bitrate; }
+float       radioBattery()     { return voltage; }
+const char *radioSongPlaying() { return songPlaying.c_str(); }
+
+void radioReconnectWifi() {
+  WiFi.disconnect(true);
+  delay(100);
+  wifiMulti.addAP(getWifiSsid(), getWifiPassword());
+  wifiMulti.run();
+}
+
+void radioDeepSleep() {
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
+  digitalWrite(PA_CTRL, LOW);
+  delay(200);
+  esp_deep_sleep_start();
 }
 
 
