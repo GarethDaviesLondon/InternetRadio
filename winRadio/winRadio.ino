@@ -8,7 +8,7 @@
 #include "config.h"
 #include "storage.h"
 #include "net.h"
-#include "audio.h"
+#include "radio_audio.h"
 #include "display.h"
 #include "input.h"
 #include "power.h"

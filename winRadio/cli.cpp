@@ -2,7 +2,7 @@
 // All real work goes through module APIs (audio, net, storage, power).
 
 #include "cli.h"
-#include "audio.h"
+#include "radio_audio.h"
 #include "net.h"
 #include "storage.h"
 #include "stations.h"

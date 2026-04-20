@@ -1,6 +1,6 @@
 #include "display.h"
 #include "config.h"
-#include "audio.h"
+#include "radio_audio.h"
 #include "net.h"
 #include "power.h"
 #include "stations.h"

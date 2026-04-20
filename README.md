@@ -120,8 +120,11 @@ winRadio/
                    SD-card surface declared as stubs
   net.{h,cpp}      WiFi STA connect / reconnect / RSSI / hostname; mDNS
                    and LAN-broadcast declared as stubs
-  audio.{h,cpp}    ES8311 init, ESP32-audioI2S setup + callbacks, station
-                   playback, Morse "R" speaker self-test
+  radio_audio.{h,cpp}
+                   ES8311 init, ESP32-audioI2S setup + callbacks, station
+                   playback, Morse "R" speaker self-test. Named with a
+                   prefix so the file doesn't collide with the library's
+                   own `Audio.h` on case-insensitive filesystems.
   stations.{h,cpp} Preset list with names + URLs; future SD-loaded sets
   display.{h,cpp}  ST7789 panel + sprites + drawing; `Theme` struct so
                    skinning is one assignment away
