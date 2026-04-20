@@ -13,6 +13,11 @@
 #include <math.h>
 #include <driver/i2s_std.h>
 
+// Forward decl: Arduino's auto-prototype pass can't parse functions that
+// take namespaced types like Audio::msg_t, so setup() can't see it without
+// an explicit declaration here.
+static void audioEventHandler(Audio::msg_t msg);
+
 // Colour-name compatibility with the original Volos sketch. Newer releases
 // of Arduino_GFX / LovyanGFX only ship the RGB565_* and TFT_* variants.
 #ifndef BLACK
@@ -534,7 +539,7 @@ void radioPlayMorseR() {
 // payload string in msg.msg. We switch on msg.e to update state and
 // optionally mirror the payload to Serial when the CLI `log` is on.
 
-static volatile unsigned g_audioInfoCount = 0;
+static unsigned g_audioInfoCount = 0;   // diagnostic only; races on read/++ are harmless
 unsigned radioAudioInfoCount() { return g_audioInfoCount; }
 
 static void audioLog(const char *tag, const char *info) {
