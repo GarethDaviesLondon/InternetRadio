@@ -154,6 +154,11 @@ static void cmdStatus() {
     Serial.print(F("Bitrate : "));
     Serial.print(radioBitrate());
     outln(F(" kbps"));
+    Serial.print(F("Audio   : "));
+    outln(radioIsRunning() ? "running" : "stopped");
+    Serial.print(F("Events  : "));
+    Serial.print(radioAudioInfoCount());
+    outln(F(" audio_info callbacks"));
     Serial.print(F("Battery : "));
     Serial.print(radioBattery(), 2);
     outln(F(" V"));

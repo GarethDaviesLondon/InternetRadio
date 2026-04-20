@@ -32,6 +32,8 @@ void        radioSetVolume(int v);         // 1..5, clamped
 long        radioBitrate();
 float       radioBattery();
 const char *radioSongPlaying();
+bool        radioIsRunning();
+unsigned    radioAudioInfoCount();   // number of audio_info callbacks seen
 void        radioReconnectWifi();
 void        radioDeepSleep();
 

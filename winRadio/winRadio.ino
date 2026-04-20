@@ -197,9 +197,11 @@ void setup() {
 
   Serial.printf("pre-audio DMA heap free = %u bytes\r\n",
                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
-  audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, I2S_MCLK);
+  bool pinOk = audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, I2S_MCLK);
+  Serial.printf("audio.setPinout -> %s\r\n", pinOk ? "ok" : "FAIL");
   audio.setVolume(volume*4); // 0...21
-  audio.connecttohost(stations[0].c_str());
+  bool connOk = audio.connecttohost(stations[0].c_str());
+  Serial.printf("audio.connecttohost -> %s\r\n", connOk ? "ok" : "FAIL");
 }
 
 void draw2()
@@ -523,6 +525,9 @@ void radioPlayMorseR() {
 // ESP32-audioI2S callbacks. State updates always run; the serial log is
 // gated on the CLI's `log` toggle (default off) so it doesn't clobber the
 // prompt while you're typing.
+static volatile unsigned g_audioInfoCount = 0;
+unsigned radioAudioInfoCount() { return g_audioInfoCount; }
+
 static void audioLog(const char *tag, const char *info) {
   if (!audioLogEnabled()) return;
   Serial.print("\r\n[audio ");
@@ -532,7 +537,7 @@ static void audioLog(const char *tag, const char *info) {
   Serial.print("\r\nradio> ");
 }
 
-void audio_info(const char *info)            { audioLog("info", info); }
+void audio_info(const char *info)            { g_audioInfoCount++; audioLog("info", info); }
 void audio_id3data(const char *info)         { audioLog("id3",  info); }
 void audio_showstation(const char *info)     { curStation = info; canDraw = true;  audioLog("station", info); }
 void audio_showstreamtitle(const char *info) { songPlaying = info; canDraw = 1;    audioLog("title",   info); }
@@ -550,7 +555,9 @@ void radioSelectStation(int idx) {
   if (idx < 0) idx = 0;
   if (idx >= ns) idx = ns - 1;
   chosen = idx;
-  audio.connecttohost(stations[chosen].c_str());
+  bool ok = audio.connecttohost(stations[chosen].c_str());
+  Serial.printf("connecttohost('%s') -> %s\r\n",
+                stations[chosen].c_str(), ok ? "ok" : "FAIL");
   canDraw = 1;
 }
 
@@ -569,6 +576,7 @@ void radioSetVolume(int v) {
 long        radioBitrate()     { return bitrate; }
 float       radioBattery()     { return voltage; }
 const char *radioSongPlaying() { return songPlaying.c_str(); }
+bool        radioIsRunning()   { return audio.isRunning(); }
 
 void radioReconnectWifi() {
   WiFi.disconnect(true);
