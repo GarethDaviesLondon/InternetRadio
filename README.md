@@ -36,13 +36,32 @@ Based on [VolosR/WaveshareRadioStream](https://github.com/VolosR/WaveshareRadioS
 
 ## Build
 
+### PlatformIO (recommended)
+
+A `platformio.ini` ships in the repo, so a clone-and-build is enough:
+
+```
+git clone -b claude/waveshare-internet-radio-1syTE \
+  https://github.com/GarethDaviesLondon/InternetRadio.git
+cd InternetRadio
+pio run -t upload
+pio device monitor
+```
+
+Board: `esp32-s3-devkitc-1`, flash 16 MB, OPI PSRAM, serial 9600 8N1.
+Libraries (`ESP32-audioI2S`, `Arduino_GFX`, `LovyanGFX`) are pulled
+automatically via `lib_deps`.
+
+### Arduino IDE
+
 1. Install the **ESP32 Arduino core** (v3.x, tested with ESP32-S3).
 2. Install these libraries via the Arduino Library Manager:
    - `ESP32-audioI2S` (schreibfaul1)
    - `Arduino_GFX` (moononournation)
    - `LovyanGFX`
 3. Board: *ESP32S3 Dev Module*, PSRAM: *OPI PSRAM*, Flash size: *16 MB*,
-   Partition: *Default 4MB with spiffs* (or any that leaves room for NVS).
+   Partition: *Default 4MB with spiffs* (or any that leaves room for NVS),
+   USB CDC On Boot: *Disabled* (so Serial stays on UART0 at 9600).
 4. Open `winRadio/winRadio.ino` and upload.
 
 ## Serial CLI
