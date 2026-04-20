@@ -17,6 +17,10 @@ static String      g_ssid = "";
 static String      g_pass = "";
 static String      g_buf  = "";
 static bool        g_lastWasCr = false;
+static bool        g_audioLog = false;
+
+bool audioLogEnabled()           { return g_audioLog; }
+void setAudioLogEnabled(bool on) { g_audioLog = on; }
 
 // --------------------------------------------------------------------------
 // Output helpers: always CRLF.
@@ -115,6 +119,7 @@ static void cmdHelp() {
     outln(F("  wifi show            Show stored SSID"));
     outln(F("  wifi clear           Erase stored credentials"));
     outln(F("  reconnect            Reconnect to WiFi"));
+    outln(F("  log on | off         Stream audio library events to serial"));
     outln(F("  reboot, r            Restart the device"));
     outln(F("  sleep                Deep sleep (wake via left button)"));
     outln();
@@ -257,6 +262,14 @@ static void dispatch(const String &raw) {
         outln(F("Credentials cleared."));
     }
     else if (eqi(cmd, "reconnect"))                            cmdReconnect();
+    else if (eqi(cmd, "log")) {
+        if (arg.length() == 0) {
+            Serial.print(F("log: "));
+            outln(g_audioLog ? "on" : "off");
+        } else if (eqi(arg, "on"))  { g_audioLog = true;  outln(F("log: on"));  }
+        else if (eqi(arg, "off")) { g_audioLog = false; outln(F("log: off")); }
+        else outln(F("Usage: log [on|off]"));
+    }
     else if (eqi(cmd, "reboot") || eqi(cmd, "r"))              { outln(F("Rebooting...")); delay(100); ESP.restart(); }
     else if (eqi(cmd, "sleep"))                                { outln(F("Sleeping...")); delay(100); radioDeepSleep(); }
     else {

@@ -13,7 +13,12 @@ void cliBegin();            // banner + prompt
 void cliFirstRunSetup();    // blocking: prompt for creds if NVS is empty
 void cliPoll();             // non-blocking, call from loop()
 
-// ---- Radio control API (implemented in winRadio.ino) ---------------------
+// ---- Audio library event logging -----------------------------------------
+// When enabled, the ESP32-audioI2S callbacks (info / id3 / station / title /
+// bitrate) print their payload to Serial with a `[audio]` prefix so you can
+// watch what the library is doing. Off by default so the CLI stays clean.
+bool audioLogEnabled();
+void setAudioLogEnabled(bool on);
 // The CLI calls these so it doesn't need direct access to the audio object
 // or the sketch's globals.
 int         radioStationCount();

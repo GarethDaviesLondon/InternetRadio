@@ -417,22 +417,23 @@ if (millis() - lastSlide > 30) {   // svakih 1 sekundu
 }
 
 // optional
-// ESP32-audioI2S callbacks. Kept silent so the serial CLI stays readable;
-// the LCD already shows station / title / bitrate.
-void audio_info(const char *info) { (void)info; }
-void audio_id3data(const char *info) { (void)info; }
+// ESP32-audioI2S callbacks. State updates always run; the serial log is
+// gated on the CLI's `log` toggle (default off) so it doesn't clobber the
+// prompt while you're typing.
+static void audioLog(const char *tag, const char *info) {
+  if (!audioLogEnabled()) return;
+  Serial.print("\r\n[audio ");
+  Serial.print(tag);
+  Serial.print("] ");
+  Serial.print(info);
+  Serial.print("\r\nradio> ");
+}
 
-void audio_showstation(const char *info) {
-  curStation = info;
-  canDraw = true;
-}
-void audio_showstreamtitle(const char *info) {
-  songPlaying = info;
-  canDraw = 1;
-}
-void audio_bitrate(const char *info) {
-  bitrate = (String(info).toInt() / 1000);
-}
+void audio_info(const char *info)            { audioLog("info", info); }
+void audio_id3data(const char *info)         { audioLog("id3",  info); }
+void audio_showstation(const char *info)     { curStation = info; canDraw = true;  audioLog("station", info); }
+void audio_showstreamtitle(const char *info) { songPlaying = info; canDraw = 1;    audioLog("title",   info); }
+void audio_bitrate(const char *info)         { bitrate = (String(info).toInt() / 1000); audioLog("bitrate", info); }
 
 // --------------------------------------------------------------------------
 // Radio control API used by the serial CLI (see cli.h / cli.cpp).
