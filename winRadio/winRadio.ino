@@ -160,8 +160,11 @@ void setup() {
   gfx->println("connecting to WI-FI");
 
   sprite.setColorDepth(16);     // RGB565
-  sprite.createSprite(240, 240); 
-  sprite2.createSprite(230, 16); 
+  // Put the 115 KB 240x240 sprite in PSRAM; otherwise it eats internal SRAM
+  // and starves the Audio library's I2S DMA allocation at boot.
+  sprite.setPsram(true);
+  sprite.createSprite(240, 240);
+  sprite2.createSprite(230, 16);
   
   sprite.loadFont(NotoSansBold15);
 
@@ -192,6 +195,8 @@ void setup() {
     wifiMulti.run();
   }
 
+  Serial.printf("pre-audio DMA heap free = %u bytes\r\n",
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
   audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, I2S_MCLK);
   audio.setVolume(volume*4); // 0...21
   audio.connecttohost(stations[0].c_str());
@@ -497,15 +502,18 @@ void radioPlayMorseR() {
     return;
   }
 
-  // R = dot dash dot, 120 ms per unit.
+  // R = dot dash dot, 120 ms per unit. Lead with 200 ms of silence so the
+  // codec / PA finish their unmute ramp before the first dot; without it
+  // the opening dot is swallowed and you hear "N" (dash-dot) instead of R.
   const uint32_t U = 120;                // dot length in ms
   const uint32_t FR_PER_MS = 16;         // 16000 Hz / 1000
+  morseWriteFrames(tx, 200     * FR_PER_MS, false);  // warm-up
   morseWriteFrames(tx, U       * FR_PER_MS, true);   // .
   morseWriteFrames(tx, U       * FR_PER_MS, false);
   morseWriteFrames(tx, (U * 3) * FR_PER_MS, true);   // -
   morseWriteFrames(tx, U       * FR_PER_MS, false);
   morseWriteFrames(tx, U       * FR_PER_MS, true);   // .
-  morseWriteFrames(tx, U       * FR_PER_MS, false);
+  morseWriteFrames(tx, 200     * FR_PER_MS, false);  // tail so last dot isn't clipped
 
   i2s_channel_disable(tx);
   i2s_del_channel(tx);

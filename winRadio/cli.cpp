@@ -244,7 +244,7 @@ static void dispatch(const String &raw) {
     else        { cmd = line.substring(0, sp); arg = line.substring(sp + 1); arg.trim(); }
 
     if      (eqi(cmd, "help") || cmd == "?")                   cmdHelp();
-    else if (eqi(cmd, "status") || eqi(cmd, "s"))              cmdStatus();
+    else if (eqi(cmd, "status") || eqi(cmd, "stat") || eqi(cmd, "s")) cmdStatus();
     else if (eqi(cmd, "stations") || eqi(cmd, "list"))         cmdListStations();
     else if (eqi(cmd, "station") || eqi(cmd, "sel"))           cmdSelectStation(arg);
     else if (eqi(cmd, "next"))                                 { radioNextStation(); cmdStatus(); }
