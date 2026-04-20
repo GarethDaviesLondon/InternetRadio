@@ -10,6 +10,8 @@
 #include "Wire.h"
 #include "NotoSansBold15.h"
 #include "cli.h"
+#include <math.h>
+#include <driver/i2s_std.h>
 
 // Colour-name compatibility with the original Volos sketch. Newer releases
 // of Arduino_GFX / LovyanGFX only ship the RGB565_* and TFT_* variants.
@@ -76,16 +78,18 @@ unsigned short light;
 
 int g[14]={0};  //graph
 
-#define ns 6 //number of stations max 9
+#define ns 8 //number of stations max 9
 
 String stations[ns]={
+                "http://ice1.somafm.com/groovesalad-128-mp3",
                 "https://discodiamond.radioca.st/autodj",
                 "https://listen.radioking.com/radio/175279/stream/216784",
                 "http://sc6.radiocaroline.net:8040/stream",
                 "https://club-high.rautemusik.fm/;",
                 "http://greece-media.monroe.edu/wgmc.mp3",
-                 "https://audio.radio-banovina.hr:9998/;"
-                 };
+                "https://audio.radio-banovina.hr:9998/;",
+                "http://stream.radioparadise.com/mp3-128"
+                };
 
 
 #define GFX_BL 46
@@ -139,6 +143,11 @@ void setup() {
   digitalWrite(PA_CTRL, HIGH);
   es8311_codec_init();
   gpio_hold_en((gpio_num_t)2);
+
+  // Speaker self-test: dot-dash-dot (Morse "R") before the Audio library
+  // takes over I2S 0. If you hear this, the codec + amp + speaker path is
+  // healthy and any silence afterwards is a streaming issue, not hardware.
+  radioPlayMorseR();
 
   gfx->begin();
   gfx->fillScreen(RGB565_BLACK);
@@ -417,6 +426,70 @@ if (millis() - lastSlide > 30) {   // svakih 1 sekundu
 }
 
 // optional
+// --------------------------------------------------------------------------
+// Morse "R" speaker self-test. Drives the ES8311 directly via the ESP-IDF
+// i2s_std driver so it can run before the Audio library claims I2S 0.
+// --------------------------------------------------------------------------
+
+static void morseWriteFrames(i2s_chan_handle_t h, uint32_t frames, bool toneOn) {
+  const uint32_t SR = 16000;             // must match es8311_codec_init
+  const float    HZ = 700.0f;
+  const float    dphi = 2.0f * (float)M_PI * HZ / SR;
+  static float   phase = 0.0f;
+  int16_t        buf[256];               // 128 stereo frames
+  while (frames > 0) {
+    uint32_t n = frames > 128 ? 128 : frames;
+    for (uint32_t i = 0; i < n; i++) {
+      int16_t s = 0;
+      if (toneOn) {
+        s = (int16_t)(sinf(phase) * 12000.0f);
+        phase += dphi;
+        if (phase > 2.0f * (float)M_PI) phase -= 2.0f * (float)M_PI;
+      }
+      buf[i * 2]     = s;
+      buf[i * 2 + 1] = s;
+    }
+    size_t written = 0;
+    i2s_channel_write(h, buf, n * 4, &written, portMAX_DELAY);
+    frames -= n;
+  }
+}
+
+void radioPlayMorseR() {
+  i2s_chan_handle_t tx = nullptr;
+  i2s_chan_config_t cc = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+  if (i2s_new_channel(&cc, &tx, nullptr) != ESP_OK) return;
+
+  i2s_std_config_t sc = {};
+  sc.clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(16000);
+  sc.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+  sc.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+  sc.gpio_cfg.mclk = (gpio_num_t)I2S_MCLK;
+  sc.gpio_cfg.bclk = (gpio_num_t)I2S_BCLK;
+  sc.gpio_cfg.ws   = (gpio_num_t)I2S_LRC;
+  sc.gpio_cfg.dout = (gpio_num_t)I2S_DOUT;
+  sc.gpio_cfg.din  = I2S_GPIO_UNUSED;
+
+  if (i2s_channel_init_std_mode(tx, &sc) != ESP_OK) {
+    i2s_del_channel(tx);
+    return;
+  }
+  i2s_channel_enable(tx);
+
+  // R = dot dash dot, 120 ms per unit.
+  const uint32_t U = 120;                // dot length in ms
+  const uint32_t FR_PER_MS = 16;         // 16000 Hz / 1000
+  morseWriteFrames(tx, U       * FR_PER_MS, true);   // .
+  morseWriteFrames(tx, U       * FR_PER_MS, false);
+  morseWriteFrames(tx, (U * 3) * FR_PER_MS, true);   // -
+  morseWriteFrames(tx, U       * FR_PER_MS, false);
+  morseWriteFrames(tx, U       * FR_PER_MS, true);   // .
+  morseWriteFrames(tx, U       * FR_PER_MS, false);
+
+  i2s_channel_disable(tx);
+  i2s_del_channel(tx);
+}
+
 // ESP32-audioI2S callbacks. State updates always run; the serial log is
 // gated on the CLI's `log` toggle (default off) so it doesn't clobber the
 // prompt while you're typing.

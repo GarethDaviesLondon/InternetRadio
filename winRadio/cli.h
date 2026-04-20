@@ -34,3 +34,8 @@ float       radioBattery();
 const char *radioSongPlaying();
 void        radioReconnectWifi();
 void        radioDeepSleep();
+
+// Speaker self-test: plays "R" (dot-dash-dot) in Morse via the ES8311.
+// Must be called *before* the Audio library grabs I2S 0 (i.e. before
+// audio.setPinout / audio.connecttohost), or after a reboot.
+void        radioPlayMorseR();
