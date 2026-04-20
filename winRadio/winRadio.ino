@@ -37,8 +37,8 @@ int batLevel=0;
 
 Audio audio;
 WiFiMulti wifiMulti;
-String ssid = "xxxxxxxxx";    // ################### DONT FORGET EDIT THIS
-String password = "xxxxxxxxxx";
+// WiFi credentials live in NVS (see cli.ino). Set them via the serial CLI
+// at 9600 8N1: type `wifi` and follow the SSID / password prompts.
 
 bool canDraw=0;
 bool deb=0;
@@ -103,7 +103,9 @@ static esp_err_t es8311_codec_init(void) {
 
 void setup() {
 
-  Serial.begin(115200);
+  Serial.begin(9600, SERIAL_8N1);
+  cliBegin();
+  loadWifiCreds();
   Wire.begin(I2C_SDA, I2C_SCL);
   gpio_hold_dis((gpio_num_t)2);
   pinMode(0, INPUT_PULLUP); // left na GPIO0
@@ -144,11 +146,22 @@ void setup() {
   sprite2.setTextColor(grays[0],TFT_BLACK);
 
   WiFi.mode(WIFI_STA);
-  wifiMulti.addAP(ssid.c_str(), password.c_str());
+  if (!hasWifiCreds()) {
+    gfx->fillScreen(RGB565_BLACK);
+    gfx->setCursor(2, 20);
+    gfx->setTextSize(2);
+    gfx->setTextColor(RGB565_YELLOW);
+    gfx->println("No WiFi creds.");
+    gfx->println("Connect serial");
+    gfx->println("@ 9600 8N1");
+    gfx->println("and type: wifi");
+    cliFirstRunSetup();
+  }
+  wifiMulti.addAP(getWifiSsid(), getWifiPassword());
   wifiMulti.run();
   if (WiFi.status() != WL_CONNECTED) {
     WiFi.disconnect(true);
-    wifiMulti.run(); 
+    wifiMulti.run();
   }
 
   audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, I2S_MCLK);
@@ -373,6 +386,8 @@ if (millis() - lastSlide > 30) {   // svakih 1 sekundu
     delay(200);
     esp_deep_sleep_start();
   }
+
+  cliPoll();
 
   vTaskDelay(1);
   audio.loop();
