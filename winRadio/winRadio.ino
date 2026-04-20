@@ -116,7 +116,7 @@ static esp_err_t es8311_codec_init(void) {
 
 void setup() {
 
-  Serial.begin(9600, SERIAL_8N1);
+  Serial.begin(9600);  // HWCDC: baud is ignored (virtualised over USB)
   // USB CDC re-enumerates after reset; wait briefly so the banner isn't
   // swallowed. Cap at 1.5 s so a headless boot isn't blocked.
   {
