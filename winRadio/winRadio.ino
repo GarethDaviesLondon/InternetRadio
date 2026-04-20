@@ -117,6 +117,12 @@ static esp_err_t es8311_codec_init(void) {
 void setup() {
 
   Serial.begin(9600, SERIAL_8N1);
+  // USB CDC re-enumerates after reset; wait briefly so the banner isn't
+  // swallowed. Cap at 1.5 s so a headless boot isn't blocked.
+  {
+    unsigned long t0 = millis();
+    while (!Serial && millis() - t0 < 1500) delay(10);
+  }
   cliBegin();
   loadWifiCreds();
   Wire.begin(I2C_SDA, I2C_SCL);
