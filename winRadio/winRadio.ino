@@ -4,11 +4,24 @@
 #include "SD_MMC.h"
 #include "FS.h"
 #include <Arduino_GFX_Library.h>
-#include <LovyanGFX.hpp> 
+#include <LovyanGFX.hpp>
 #include "es8311.h"
 #include "esp_check.h"
 #include "Wire.h"
 #include "NotoSansBold15.h"
+#include "cli.h"
+
+// Colour-name compatibility with the original Volos sketch. Newer releases
+// of Arduino_GFX / LovyanGFX only ship the RGB565_* and TFT_* variants.
+#ifndef BLACK
+  #define BLACK  0x0000
+#endif
+#ifndef YELLOW
+  #define YELLOW 0xFFE0
+#endif
+#ifndef ORANGE
+  #define ORANGE 0xFD20
+#endif
 
 #define PA_CTRL 7
 #define I2S_MCLK 8

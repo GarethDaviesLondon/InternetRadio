@@ -2,6 +2,8 @@
 // Runs on Serial at 9600 8N1 (configured in winRadio.ino).
 // Commands: help, wifi, wifi show, wifi clear, status, reboot.
 
+#include "cli.h"
+#include <Arduino.h>
 #include <Preferences.h>
 #include <WiFi.h>
 
