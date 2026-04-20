@@ -15,7 +15,9 @@ Based on [VolosR/WaveshareRadioStream](https://github.com/VolosR/WaveshareRadioS
   GPIO 4 (right / volume)
 - Li-ion battery monitoring on ADC1 channel (GPIO 1), with enable on GPIO 2
 
-### Pin map (from `winRadio/winRadio.ino`)
+### Pin map
+
+All pins live in `winRadio/config.h`:
 
 | Function         | GPIO |
 | ---------------- | ---- |
@@ -104,17 +106,76 @@ check status without reflashing.
 - **Mid (GPIO 5)**: next station
 - **Right (GPIO 4)**: volume step (wraps 1–5)
 
-## Layout
+## Architecture
+
+The sketch is split into focused modules (each `module.{h,cpp}` pair) plus
+`winRadio.ino` which only orchestrates `setup()` / `loop()`.
 
 ```
 winRadio/
-  winRadio.ino      main sketch: display, audio, buttons, loop
-  cli.ino           serial CLI + NVS-backed WiFi credentials
-  es8311.{cpp,h}    ES8311 codec driver
-  es8311_reg.h      codec register definitions
-  NotoSansBold15.h  UI font
-  data/1.mp3        sample audio
+  winRadio.ino     setup() + loop() orchestrator only
+  config.h         pin map + audio / display / power constants
+
+  storage.{h,cpp}  NVS (Preferences) accessor + WiFi-creds convenience;
+                   SD-card surface declared as stubs
+  net.{h,cpp}      WiFi STA connect / reconnect / RSSI / hostname; mDNS
+                   and LAN-broadcast declared as stubs
+  audio.{h,cpp}    ES8311 init, ESP32-audioI2S setup + callbacks, station
+                   playback, Morse "R" speaker self-test
+  stations.{h,cpp} Preset list with names + URLs; future SD-loaded sets
+  display.{h,cpp}  ST7789 panel + sprites + drawing; `Theme` struct so
+                   skinning is one assignment away
+  input.{h,cpp}    Buttons; touch-driver declared as stub
+  power.{h,cpp}    Battery sampling + deep sleep
+  cli.{h,cpp}      USB-CDC serial CLI; calls into the module APIs
+  web.{h,cpp}      Web UI placeholder (see header for the planned design)
+  provision.{h,cpp} AP / captive-portal placeholder for first-time WiFi
+
+  es8311.{cpp,h}   ES8311 codec driver (vendor)
+  es8311_reg.h     codec registers
+  NotoSansBold15.h UI font
 ```
+
+### Dependency direction
+
+```
+  cli, web ──────────────────┐
+            │                │
+            ▼                ▼
+   audio  net  storage  power  input  display ── stations
+                                         │           ▲
+                                         └───────────┘  (read for rendering)
+```
+
+No circular dependencies. Adding a new feature usually means a new module
+pair and one wiring line in `winRadio.ino`.
+
+### Two-core strategy
+
+- **Core 0**: WiFi + BT stacks (ESP-IDF default).
+- **Core 1**: Arduino `loopTask` (this is where `setup()` / `loop()` run).
+  ESP32-audioI2S spawns its own audio task on Core 1 by default; once the
+  web server lands, call `audio.setAudioTaskCore(0)` to free Core 1's CPU
+  budget for the display / loop tick.
+- **Display**: a future enhancement is to move `displayDrawMain()` into a
+  dedicated task on Core 0 alongside WiFi, so the heavy 115 KB sprite
+  byte-swap stops blocking `audioLoop()` for ~30 ms every frame.
+
+## Roadmap (stubbed in code)
+
+- **Web UI** — `web.{h,cpp}`. Plan: ESPAsyncWebServer + AsyncWebSocket;
+  static SPA from PROGMEM/LittleFS; JSON over WS for state push.
+- **SD card** — `storage.{h,cpp}`. Settings / station sets / recordings /
+  MP3 playback, all via `SD_MMC` on the existing pin map.
+- **WiFi provisioning** — `provision.{h,cpp}`. AP `WaveRadio-Setup` +
+  captive-portal DNS + a tiny scan/save form; falls through automatically
+  when stored creds fail.
+- **mDNS / discovery** — `netStartMdns()`. Announce as `waveradio.local`
+  with a `_http._tcp` service record.
+- **Skinnable UI** — `display.{h,cpp}` already routes everything through a
+  `Theme` struct; load alternate themes from SD.
+- **Touch** — `input.{h,cpp}`. Pick a driver (XPT2046 resistive or GT911
+  capacitive depending on the board variant) and emit `INPUT_TOUCH_TAP`.
 
 ## Credits
 
