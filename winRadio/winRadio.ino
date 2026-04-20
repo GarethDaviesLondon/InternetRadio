@@ -456,9 +456,22 @@ static void morseWriteFrames(i2s_chan_handle_t h, uint32_t frames, bool toneOn) 
 }
 
 void radioPlayMorseR() {
+  const size_t dmaFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+  Serial.printf("morse: DMA-capable heap free = %u bytes\r\n", (unsigned)dmaFree);
+
   i2s_chan_handle_t tx = nullptr;
   i2s_chan_config_t cc = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-  if (i2s_new_channel(&cc, &tx, nullptr) != ESP_OK) return;
+  // Shrink DMA footprint: default is 6 × 240 frames = 5.8 KB of internal
+  // DMA-capable SRAM, which some arduino-esp32 builds can't satisfy this
+  // early in boot. 2 × 128 frames × 4 B/frame = 1 KB total.
+  cc.dma_desc_num  = 2;
+  cc.dma_frame_num = 128;
+
+  esp_err_t err = i2s_new_channel(&cc, &tx, nullptr);
+  if (err != ESP_OK) {
+    Serial.printf("morse: i2s_new_channel failed (0x%x)\r\n", err);
+    return;
+  }
 
   i2s_std_config_t sc = {};
   sc.clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(16000);
@@ -470,11 +483,19 @@ void radioPlayMorseR() {
   sc.gpio_cfg.dout = (gpio_num_t)I2S_DOUT;
   sc.gpio_cfg.din  = I2S_GPIO_UNUSED;
 
-  if (i2s_channel_init_std_mode(tx, &sc) != ESP_OK) {
+  err = i2s_channel_init_std_mode(tx, &sc);
+  if (err != ESP_OK) {
+    Serial.printf("morse: init_std_mode failed (0x%x)\r\n", err);
     i2s_del_channel(tx);
     return;
   }
-  i2s_channel_enable(tx);
+
+  err = i2s_channel_enable(tx);
+  if (err != ESP_OK) {
+    Serial.printf("morse: channel_enable failed (0x%x)\r\n", err);
+    i2s_del_channel(tx);
+    return;
+  }
 
   // R = dot dash dot, 120 ms per unit.
   const uint32_t U = 120;                // dot length in ms
@@ -488,6 +509,7 @@ void radioPlayMorseR() {
 
   i2s_channel_disable(tx);
   i2s_del_channel(tx);
+  Serial.println("morse: done");
 }
 
 // ESP32-audioI2S callbacks. State updates always run; the serial log is
