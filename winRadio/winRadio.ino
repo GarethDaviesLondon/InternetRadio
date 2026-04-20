@@ -197,6 +197,7 @@ void setup() {
 
   Serial.printf("pre-audio DMA heap free = %u bytes\r\n",
                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
+  Audio::audio_info_callback = audioEventHandler;   // must be set before connect
   bool pinOk = audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, I2S_MCLK);
   Serial.printf("audio.setPinout -> %s\r\n", pinOk ? "ok" : "FAIL");
   audio.setVolume(volume*4); // 0...21
@@ -525,6 +526,14 @@ void radioPlayMorseR() {
 // ESP32-audioI2S callbacks. State updates always run; the serial log is
 // gated on the CLI's `log` toggle (default off) so it doesn't clobber the
 // prompt while you're typing.
+// Audio library events.
+// The current ESP32-audioI2S (>= 2024 major rewrite) no longer exposes weak
+// audio_info / audio_bitrate / audio_showstation functions. Instead it
+// dispatches everything through a single std::function set as
+// Audio::audio_info_callback, with a msg_t carrying an event_t enum and a
+// payload string in msg.msg. We switch on msg.e to update state and
+// optionally mirror the payload to Serial when the CLI `log` is on.
+
 static volatile unsigned g_audioInfoCount = 0;
 unsigned radioAudioInfoCount() { return g_audioInfoCount; }
 
@@ -533,15 +542,35 @@ static void audioLog(const char *tag, const char *info) {
   Serial.print("\r\n[audio ");
   Serial.print(tag);
   Serial.print("] ");
-  Serial.print(info);
+  Serial.print(info ? info : "");
   Serial.print("\r\nradio> ");
 }
 
-void audio_info(const char *info)            { g_audioInfoCount++; audioLog("info", info); }
-void audio_id3data(const char *info)         { audioLog("id3",  info); }
-void audio_showstation(const char *info)     { curStation = info; canDraw = true;  audioLog("station", info); }
-void audio_showstreamtitle(const char *info) { songPlaying = info; canDraw = 1;    audioLog("title",   info); }
-void audio_bitrate(const char *info)         { bitrate = (String(info).toInt() / 1000); audioLog("bitrate", info); }
+static void audioEventHandler(Audio::msg_t msg) {
+  const char *p = msg.msg ? msg.msg : "";
+  switch (msg.e) {
+    case Audio::evt_name:
+      curStation = p; canDraw = true;
+      audioLog("station", p); break;
+    case Audio::evt_streamtitle:
+      songPlaying = p; canDraw = 1;
+      audioLog("title", p); break;
+    case Audio::evt_bitrate:
+      bitrate = String(p).toInt() / 1000;
+      audioLog("bitrate", p); break;
+    case Audio::evt_info:
+      g_audioInfoCount++;
+      audioLog("info", p); break;
+    case Audio::evt_id3data:
+      audioLog("id3", p); break;
+    case Audio::evt_eof:
+      audioLog("eof", p); break;
+    case Audio::evt_log:
+      audioLog("log", p); break;
+    default:
+      audioLog(msg.s ? msg.s : "?", p); break;
+  }
+}
 
 // --------------------------------------------------------------------------
 // Radio control API used by the serial CLI (see cli.h / cli.cpp).
