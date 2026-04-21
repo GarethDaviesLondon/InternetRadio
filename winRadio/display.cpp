@@ -6,6 +6,8 @@
 #include "stations.h"
 #include "NotoSansBold15.h"
 
+#include <cstdio>
+
 #include <Arduino_GFX_Library.h>
 #include <LovyanGFX.hpp>
 
@@ -85,6 +87,119 @@ void displayShowMessage(const char *l1, const char *l2,
     if (l2) s_gfx->println(l2);
     if (l3) s_gfx->println(l3);
     if (l4) s_gfx->println(l4);
+}
+
+// ---- Boot-time WiFi screens --------------------------------------------
+// These use the panel's built-in bitmap font (via gfx-> directly) rather
+// than the sprite's NotoSansBold15 -- SSIDs are longer than the main UI
+// text and the built-in font's 6x8 glyphs give us more horizontal room.
+
+namespace {
+void drawFooter(const char *footer) {
+    if (!footer) return;
+    s_gfx->setTextSize(1);
+    s_gfx->setTextColor(RGB565_YELLOW);
+    s_gfx->setCursor(2, 226);
+    s_gfx->print(footer);
+}
+
+void rssiBars(int x, int y, int rssi) {
+    // 4 bars: 4=good, 3=ok, 2=weak, 1=poor, 0=bad.
+    int bars = 0;
+    if      (rssi >= -55) bars = 4;
+    else if (rssi >= -65) bars = 3;
+    else if (rssi >= -75) bars = 2;
+    else if (rssi >= -85) bars = 1;
+    for (int b = 0; b < 4; b++) {
+        int h = 3 + b * 2;
+        uint16_t c = (b < bars) ? RGB565_GREEN : 0x39C7;  // dim gray
+        s_gfx->fillRect(x + b * 4, y + (10 - h), 3, h, c);
+    }
+}
+} // namespace
+
+void displayShowWifiScan(const char *footer, int highlightIdx) {
+    if (!s_gfx) return;
+    s_gfx->fillScreen(RGB565_BLACK);
+    s_gfx->setTextSize(1);
+    s_gfx->setTextColor(RGB565_CYAN);
+    s_gfx->setCursor(2, 4);
+    s_gfx->print("Visible WiFi networks");
+
+    int n = netScanCount();
+    if (n == 0) {
+        s_gfx->setTextColor(RGB565_WHITE);
+        s_gfx->setCursor(2, 22);
+        s_gfx->print("(no networks found)");
+    } else {
+        const int rowH = 14, top = 20, maxRows = (220 - top) / rowH;
+        int shown = (n < maxRows) ? n : maxRows;
+        for (int i = 0; i < shown; i++) {
+            const ScanResult *r = netScanResult(i);
+            if (!r) continue;
+            int y = top + i * rowH;
+            rssiBars(2, y, (int)r->rssi);
+            s_gfx->setTextColor(i == highlightIdx ? RGB565_GREEN : RGB565_WHITE);
+            s_gfx->setCursor(22, y + 2);
+            String s = r->ssid;
+            if (s.length() > 32) s = s.substring(0, 32);
+            s_gfx->print(s);
+        }
+        if (n > maxRows) {
+            s_gfx->setTextColor(RGB565_WHITE);
+            s_gfx->setCursor(2, top + shown * rowH + 2);
+            s_gfx->printf("... +%d more", n - maxRows);
+        }
+    }
+    drawFooter(footer);
+}
+
+void displayShowConnecting(const char *ssid, int slot, int total,
+                           const char *footer) {
+    if (!s_gfx) return;
+    s_gfx->fillScreen(RGB565_BLACK);
+    s_gfx->setTextSize(2);
+    s_gfx->setTextColor(RGB565_GREEN);
+    s_gfx->setCursor(2, 20);
+    s_gfx->print("Connecting...");
+    s_gfx->setTextSize(1);
+    s_gfx->setTextColor(RGB565_WHITE);
+    s_gfx->setCursor(2, 60);
+    s_gfx->print(ssid ? ssid : "?");
+    if (total > 0) {
+        s_gfx->setCursor(2, 80);
+        s_gfx->printf("(slot %d of %d)", slot, total);
+    }
+    drawFooter(footer);
+}
+
+void displayShowSetupMode(const char *apSsid, const char *apIp) {
+    if (!s_gfx) return;
+    s_gfx->fillScreen(RGB565_BLACK);
+    s_gfx->setTextSize(2);
+    s_gfx->setTextColor(RGB565_YELLOW);
+    s_gfx->setCursor(2, 6);
+    s_gfx->println("WiFi Setup");
+    s_gfx->setTextSize(1);
+    s_gfx->setTextColor(RGB565_WHITE);
+    s_gfx->setCursor(2, 44);
+    s_gfx->println("Option A -- serial CLI:");
+    s_gfx->setCursor(10, 58);
+    s_gfx->setTextColor(RGB565_CYAN);
+    s_gfx->println("wifi add");
+    s_gfx->setCursor(2, 82);
+    s_gfx->setTextColor(RGB565_WHITE);
+    s_gfx->println("Option B -- AP portal:");
+    s_gfx->setCursor(10, 96);
+    s_gfx->setTextColor(RGB565_CYAN);
+    s_gfx->print("SSID : "); s_gfx->println(apSsid ? apSsid : "?");
+    s_gfx->setCursor(10, 110);
+    s_gfx->print("URL  : http://");
+    s_gfx->println(apIp ? apIp : "?");
+    s_gfx->setTextColor(RGB565_WHITE);
+    s_gfx->setCursor(2, 140);
+    s_gfx->println("Save a network to exit.");
+    drawFooter("Reboot to cancel");
 }
 
 void displayRequestRepaint() { s_repaint = true; }

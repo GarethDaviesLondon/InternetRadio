@@ -7,6 +7,7 @@
 #include "storage.h"
 #include "stations.h"
 #include "power.h"
+#include "provision.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -349,9 +350,20 @@ void cliFirstRunSetup() {
     outln();
     outln(F("No WiFi networks saved yet."));
     outln(F("Run 'wifi add' to configure one (or use the AP portal when offered)."));
-    // Interactive add, loop until at least one network is saved.
     while (!wifiHasNetworks()) {
         cmdWifiAdd("");
+    }
+}
+
+void cliWaitForNewNetwork() {
+    int before = wifiNetworkCount();
+    outln();
+    outln(F("Setup mode: run 'wifi add' to configure a network."));
+    prompt();
+    while (wifiNetworkCount() == before) {
+        cliPoll();
+        provisionPoll();   // no-op until provisioning lands; harmless to call
+        delay(10);
     }
 }
 

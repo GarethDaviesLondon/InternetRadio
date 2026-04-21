@@ -33,6 +33,10 @@ InputEvent inputPoll() {
     return INPUT_NONE;
 }
 
+bool inputLeftHeld()  { return digitalRead(PIN_BTN_LEFT)  == LOW; }
+bool inputMidHeld()   { return digitalRead(PIN_BTN_MID)   == LOW; }
+bool inputRightHeld() { return digitalRead(PIN_BTN_RIGHT) == LOW; }
+
 // ---- Touch (stub) --------------------------------------------------------
 // TODO(touch): pick a driver. If XPT2046: bit-bang or SPI on a shared bus;
 // you'll need IRQ pin + chip-select. If GT911: I2C on the existing bus.

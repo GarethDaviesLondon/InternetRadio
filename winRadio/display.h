@@ -38,3 +38,12 @@ void displayShowMessage(const char *line1,
                         const char *line2 = nullptr,
                         const char *line3 = nullptr,
                         const char *line4 = nullptr);
+
+// Boot-time WiFi screens. Read the scan results from net.h (call
+// netScanNow() first) and display them. Footer prints in yellow at the
+// bottom -- typically "Hold [V] for setup".
+void displayShowWifiScan(const char *footer = nullptr, int highlightIdx = -1);
+void displayShowConnecting(const char *ssid, int slot, int total,
+                           const char *footer = nullptr);
+// Shown while the AP provisioning portal is active.
+void displayShowSetupMode(const char *apSsid, const char *apIp);

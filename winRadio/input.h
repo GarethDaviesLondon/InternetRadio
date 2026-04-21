@@ -20,6 +20,12 @@ enum InputEvent {
 void       inputBegin();
 InputEvent inputPoll();          // returns one event per call, INPUT_NONE if none
 
+// Raw level checks (bypass the edge detector) -- useful while setup blocks
+// the main loop, e.g. polling "is the right button pressed during boot?".
+bool       inputLeftHeld();
+bool       inputMidHeld();
+bool       inputRightHeld();
+
 // Touch screen stub. The Waveshare LCD-1.3 in the Volos build is buttons
 // only, but newer Waveshare radios ship the same MCU with an XPT2046 (or
 // GT911 capacitive) touch overlay. Bring the driver up here.

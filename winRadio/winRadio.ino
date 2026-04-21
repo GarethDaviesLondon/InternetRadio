@@ -16,6 +16,38 @@
 #include "web.h"
 #include "provision.h"
 
+// --- WiFi connect UX ------------------------------------------------------
+
+// Abort callback passed to netConnect(): if the user presses the right
+// button mid-attempt we break out and enter setup mode.
+static bool netAbortOnRightButton() { return inputRightHeld(); }
+
+// Progress callback: repaint "Connecting to X (slot N of M)" on the LCD.
+static void netProgressUi(int slot, int total, const char *ssid) {
+    displayShowConnecting(ssid, slot, total, "Hold [V] = setup");
+}
+
+// Busy-wait for the configured duration, returning early with `true` if
+// the right button (V) gets pressed at any point.
+static bool waitOrSetupButton(uint32_t durationMs) {
+    uint32_t t0 = millis();
+    while (millis() - t0 < durationMs) {
+        if (inputRightHeld()) return true;
+        delay(20);
+    }
+    return false;
+}
+
+// Block in setup-mode until at least one new saved network appears. The
+// AP/captive-portal implementation in commit 3 will plug in alongside the
+// CLI path so the same "a network was added" exit covers both routes.
+static void runWifiSetup() {
+    displayShowSetupMode(PROVISION_AP_SSID, "192.168.4.1");
+    provisionStart();         // no-op until commit 3 implements the AP
+    cliWaitForNewNetwork();   // blocks, polling CLI + provisionPoll
+    provisionStop();
+}
+
 void setup() {
     // Serial CLI on USB-CDC. Baud is virtualised; PuTTY's setting is cosmetic.
     Serial.begin(9600);
@@ -34,20 +66,27 @@ void setup() {
     audioPlayMorseR();   // dot-dash-dot self-test before Audio lib grabs I2S 0
 
     displayBegin();
-    displayShowMessage("connecting", "to WI-FI");
+    displayShowMessage("Scanning WiFi", "...");
 
     netBegin();
-    if (!wifiHasNetworks()) {
-        displayShowMessage("No WiFi saved.",
-                           "Connect serial",
-                           "@ 9600 8N1",
-                           "and type: wifi");
-        cliFirstRunSetup();
+    netScanNow();
+
+    // Show the scan results for ~4 s. During that window the user can
+    // press the right button (V) to jump straight into WiFi setup.
+    displayShowWifiScan("Hold [V] = setup", -1);
+    bool setupRequested = waitOrSetupButton(4000);
+
+    if (setupRequested || !wifiHasNetworks()) {
+        runWifiSetup();
     }
-    if (!netConnect()) {
-        // TODO(provision): when provisionStart() is implemented, fall over
-        // to the AP/captive-portal flow here instead of just continuing.
-        provisionStart();
+
+    // Try all saved networks in order. If every attempt fails or the user
+    // aborts with the right button, fall over into setup mode and retry.
+    while (!netConnect(netAbortOnRightButton, netProgressUi)) {
+        displayShowMessage("No network", "connected.",
+                           "Entering setup...");
+        delay(800);
+        runWifiSetup();
     }
 
     audioBegin();
