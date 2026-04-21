@@ -42,9 +42,11 @@ static bool waitOrSetupButton(uint32_t durationMs) {
 // AP/captive-portal implementation in commit 3 will plug in alongside the
 // CLI path so the same "a network was added" exit covers both routes.
 static void runWifiSetup() {
-    displayShowSetupMode(PROVISION_AP_SSID, "192.168.4.1");
-    provisionStart();         // no-op until commit 3 implements the AP
-    cliWaitForNewNetwork();   // blocks, polling CLI + provisionPoll
+    provisionStart();
+    String apIp = provisionApIp();
+    displayShowSetupMode(PROVISION_AP_SSID,
+                         apIp.length() ? apIp.c_str() : "192.168.4.1");
+    cliWaitForNewNetwork();   // polls cli + provisionPoll; exits when a network is saved
     provisionStop();
 }
 

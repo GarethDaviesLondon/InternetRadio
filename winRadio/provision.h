@@ -1,24 +1,19 @@
-// First-time WiFi provisioning (stub).
+// First-time / user-triggered WiFi provisioning via a SoftAP + captive
+// portal. The AP is named after PROVISION_AP_SSID (config.h).
 //
-// Trigger: net.cpp's netConnect() returns false (no creds OR connect
-// failed). The orchestrator hands off to provisionStart().
-//
-// Planned implementation:
-//   1. WiFi.mode(WIFI_AP); WiFi.softAP(PROVISION_AP_SSID, PROVISION_AP_PASS)
-//   2. Bring up a captive-portal DNS responder (DNSServer answering * to
-//      our AP IP) so any HTTP probe redirects to the setup page
-//   3. ESPAsyncWebServer with /scan (returns visible SSIDs as JSON) and
-//      /save (POST {ssid, pass} -> wifiAddNetwork, then reboot)
-//   4. The LCD shows "Connect to WaveRadio-Setup, open http://192.168.4.1"
-//   5. After save: WiFi.softAPdisconnect, ESP.restart() so netConnect()
-//      runs against the new creds on next boot
-//
-// Today the module exposes the entry points so the rest of the code is
-// already wired; the body is a no-op.
+// Flow: provisionStart() brings up the AP, a DNS responder (so phones
+// auto-open the captive page), and a small WebServer that renders the
+// last scan + a "Save" form. When the user submits the form, the handler
+// calls wifiAddNetwork(), which bumps the saved-network count and lets
+// cliWaitForNewNetwork() exit. The orchestrator then calls
+// provisionStop() which tears the AP down and returns to STA mode.
 
 #pragma once
 
-void provisionStart();      // begin AP + captive portal (no-op today)
-void provisionPoll();       // service DNS / web while in AP mode
+#include <Arduino.h>
+
+void provisionStart();
+void provisionPoll();       // drive DNS + web server; call from the wait loop
 void provisionStop();
 bool provisionActive();
+String provisionApIp();     // "" if AP not running
