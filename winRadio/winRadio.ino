@@ -25,7 +25,7 @@ void setup() {
     }
     cliBegin();
 
-    storageLoadWifiCreds();
+    wifiLoadNetworks();
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
     inputBegin();
     powerBegin();
@@ -37,8 +37,8 @@ void setup() {
     displayShowMessage("connecting", "to WI-FI");
 
     netBegin();
-    if (!storageHasWifiCreds()) {
-        displayShowMessage("No WiFi creds.",
+    if (!wifiHasNetworks()) {
+        displayShowMessage("No WiFi saved.",
                            "Connect serial",
                            "@ 9600 8N1",
                            "and type: wifi");

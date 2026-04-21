@@ -8,7 +8,7 @@
 //   2. Bring up a captive-portal DNS responder (DNSServer answering * to
 //      our AP IP) so any HTTP probe redirects to the setup page
 //   3. ESPAsyncWebServer with /scan (returns visible SSIDs as JSON) and
-//      /save (POST {ssid, pass} -> storageSaveWifiCreds, then reboot)
+//      /save (POST {ssid, pass} -> wifiAddNetwork, then reboot)
 //   4. The LCD shows "Connect to WaveRadio-Setup, open http://192.168.4.1"
 //   5. After save: WiFi.softAPdisconnect, ESP.restart() so netConnect()
 //      runs against the new creds on next boot

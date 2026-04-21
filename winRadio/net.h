@@ -1,25 +1,38 @@
-// Network: WiFi STA connect/reconnect, RSSI snapshot, hostname / mDNS,
-// and AP-fallback / captive-portal provisioning hook.
+// Network: WiFi STA connect, RSSI / hostname, scan, mDNS stub.
 //
-// netConnect() is the main entry. It tries the stored credentials and, if
-// they fail (or none are stored), falls through to the provision module.
+// netConnect() walks the saved-network list (see storage.h) in order and
+// returns true as soon as one joins, or false if all attempts fail / time
+// out. A caller can hand in an "abort" callback that's polled between
+// attempts so a button press (or CLI input) can break out early.
 
 #pragma once
 
 #include <Arduino.h>
 
-void  netBegin();                 // sets WiFi mode + hostname; non-blocking
-bool  netConnect();               // blocking connect using stored creds
-void  netReconnect();              // disconnect + reconnect using stored creds
+void  netBegin();                               // mode + hostname; non-blocking
+bool  netConnect(bool (*abortCb)() = nullptr,   // true -> stop trying
+                 void (*progressCb)(int slot, int total, const char *ssid) = nullptr);
+void  netReconnect();
 bool  netConnected();
 String netLocalIp();
 int   netRssi();
 const char *netHostname();
 
-// Discovery on the local network. Stub today; ESP-IDF mDNS once enabled.
-void  netStartMdns(const char *hostname); // future: announce _http._tcp etc.
-void  netStopMdns();
+// ---- Scan ---------------------------------------------------------------
+struct ScanResult {
+    String  ssid;
+    int32_t rssi;
+    uint8_t encryption;   // WIFI_AUTH_OPEN / WPA / WPA2 / ...
+};
 
-// Future: a tiny LAN-broadcast / SSDP heartbeat so a desktop helper can
-// list radios on the LAN without mDNS. Not implemented yet.
+// Synchronous blocking scan. Returns number of APs found; results are
+// cached internally and accessed via netScanResult(i). Uniques SSIDs
+// (keeps strongest signal of each).
+int               netScanNow();
+int               netScanCount();
+const ScanResult *netScanResult(int idx);   // nullptr if out of range
+
+// ---- mDNS / discovery (stubs) -------------------------------------------
+void  netStartMdns(const char *hostname);
+void  netStopMdns();
 void  netBroadcastPresence();

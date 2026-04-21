@@ -1,37 +1,44 @@
 // Persistent storage. Today: ESP32 NVS (Preferences) for small key/value
 // settings. Tomorrow: SD card for stations, recordings, themes, MP3 files.
 //
-// Naming: the `storage*` family is for the NVS / SD layer itself. Higher
-// modules (audio, net) wrap it with domain-specific accessors so they don't
-// leak the underlying namespace strings everywhere.
+// WiFi credentials live in the "wifi" NVS namespace as an ordered list:
+//   n         : int, number of saved networks (0..kWifiMaxNetworks)
+//   s0..s9    : string, SSID for slot i
+//   p0..p9    : string, password for slot i
+// Legacy single-cred keys (`ssid`, `pass`) migrate to slot 0 on first load.
 
 #pragma once
 
 #include <Arduino.h>
 
-// ---- NVS (Preferences) ---------------------------------------------------
-// Generic typed key access in a named namespace. Returns the supplied
-// default on miss. All calls are thread-safe (Preferences serialises
-// internally) but not reentrant within one namespace.
+// ---- NVS (Preferences): generic typed access ----------------------------
 String   storageGetString(const char *ns, const char *key, const String &dflt = "");
 bool     storagePutString(const char *ns, const char *key, const String &value);
 int32_t  storageGetInt(const char *ns, const char *key, int32_t dflt = 0);
 bool     storagePutInt(const char *ns, const char *key, int32_t value);
 bool     storageRemove(const char *ns, const char *key);
 
-// Convenience wrappers for the WiFi credential pair used by net + provision.
-bool     storageLoadWifiCreds();      // populates getWifiSsid/Password
-bool     storageHasWifiCreds();
-const char *storageWifiSsid();
-const char *storageWifiPassword();
-void     storageSaveWifiCreds(const String &ssid, const String &pass);
-void     storageClearWifiCreds();
+// ---- WiFi credential list ------------------------------------------------
+constexpr int kWifiMaxNetworks = 10;
 
-// ---- SD card (stub for now) ----------------------------------------------
-// The Waveshare board exposes SD over SDIO on GPIOs 13-18 (matching Volos's
-// pin assignments). Full implementation lands when SD work begins.
-bool     storageSdMount();            // returns false until implemented
+// Load the list from NVS into the in-memory cache. Migrates legacy single-
+// credential keys (`wifi/ssid`, `wifi/pass`) into slot 0 on first call.
+// Safe to call multiple times.
+void        wifiLoadNetworks();
+
+int         wifiNetworkCount();
+bool        wifiHasNetworks();
+const char *wifiNetworkSsid(int idx);
+const char *wifiNetworkPass(int idx);
+
+// Append. Returns false if the list is full, SSID is empty, or the same
+// SSID already exists (in which case the password is updated in-place).
+bool        wifiAddNetwork(const String &ssid, const String &pass);
+bool        wifiRemoveNetwork(int idx);
+bool        wifiMoveNetwork(int from, int to);
+void        wifiClearAllNetworks();
+
+// ---- SD card (stub) ------------------------------------------------------
+bool     storageSdMount();
 bool     storageSdMounted();
 void     storageSdUnmount();
-// Future helpers: storageSdSaveStations(...), storageSdLoadStations(...),
-// storageSdRecordingPath(...), storageSdMp3List(...), storageSdLoadTheme(...)

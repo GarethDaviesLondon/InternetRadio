@@ -3,34 +3,70 @@
 #include "storage.h"
 
 #include <WiFi.h>
-#include <WiFiMulti.h>
+#include <algorithm>
+#include <vector>
 
-static WiFiMulti s_multi;
-static const char *s_hostname = DEFAULT_HOSTNAME;
+namespace {
+const char *s_hostname = DEFAULT_HOSTNAME;
+std::vector<ScanResult> s_scan;
+
+// Insert or update the SSID entry keeping the strongest RSSI.
+void upsertScan(const String &ssid, int32_t rssi, uint8_t enc) {
+    if (ssid.length() == 0) return;
+    for (auto &r : s_scan) {
+        if (r.ssid == ssid) {
+            if (rssi > r.rssi) { r.rssi = rssi; r.encryption = enc; }
+            return;
+        }
+    }
+    s_scan.push_back({ssid, rssi, enc});
+}
+
+// Ordered insertion: try this network for up to timeoutMs. Polls abortCb
+// frequently so the caller can break out. Returns true if it joined.
+bool tryJoin(const char *ssid, const char *pass, uint32_t timeoutMs,
+             bool (*abortCb)()) {
+    WiFi.disconnect(false, true);  // clear previous config without erasing creds
+    delay(50);
+    WiFi.begin(ssid, pass);
+    uint32_t start = millis();
+    while (millis() - start < timeoutMs) {
+        if (WiFi.status() == WL_CONNECTED) return true;
+        if (abortCb && abortCb()) return false;
+        delay(100);
+    }
+    return false;
+}
+} // namespace
 
 void netBegin() {
     WiFi.mode(WIFI_STA);
     WiFi.setHostname(s_hostname);
 }
 
-bool netConnect() {
-    if (!storageHasWifiCreds()) return false;
-    s_multi.addAP(storageWifiSsid(), storageWifiPassword());
-    s_multi.run();
-    if (WiFi.status() != WL_CONNECTED) {
-        WiFi.disconnect(true);
-        s_multi.run();
+bool netConnect(bool (*abortCb)(),
+                void (*progressCb)(int, int, const char *)) {
+    int n = wifiNetworkCount();
+    if (n == 0) return false;
+    for (int i = 0; i < n; i++) {
+        if (abortCb && abortCb()) return false;
+        const char *ssid = wifiNetworkSsid(i);
+        const char *pass = wifiNetworkPass(i);
+        if (progressCb) progressCb(i + 1, n, ssid);
+        Serial.printf("net: trying slot %d/%d ssid=%s\r\n", i + 1, n, ssid);
+        if (tryJoin(ssid, pass, 8000, abortCb)) {
+            Serial.printf("net: connected to %s, ip=%s\r\n",
+                          ssid, WiFi.localIP().toString().c_str());
+            return true;
+        }
     }
-    return WiFi.status() == WL_CONNECTED;
+    return false;
 }
 
 void netReconnect() {
     WiFi.disconnect(true);
     delay(100);
-    if (storageHasWifiCreds()) {
-        s_multi.addAP(storageWifiSsid(), storageWifiPassword());
-        s_multi.run();
-    }
+    netConnect();
 }
 
 bool   netConnected() { return WiFi.status() == WL_CONNECTED; }
@@ -38,14 +74,32 @@ String netLocalIp()   { return WiFi.localIP().toString(); }
 int    netRssi()      { return WiFi.RSSI(); }
 const char *netHostname() { return s_hostname; }
 
-// ---- mDNS / discovery (stubs) -------------------------------------------
-// TODO(mdns): #include <ESPmDNS.h>; MDNS.begin(hostname); MDNS.addService(
-//   "http", "tcp", 80); also add a TXT record with firmware version and
-//   features so a desktop helper can identify radios.
-void netStartMdns(const char *) {}
-void netStopMdns() {}
+// ---- Scan ---------------------------------------------------------------
 
-// TODO(broadcast): if mDNS proves unreliable on some routers, send a UDP
-// broadcast on a fixed port (e.g. 13321) every 30 s with a small JSON
-// blob {host, ip, version, station} so a LAN helper can find us.
-void netBroadcastPresence() {}
+int netScanNow() {
+    s_scan.clear();
+    WiFi.scanDelete();
+    int n = WiFi.scanNetworks(/*async=*/false, /*showHidden=*/false);
+    if (n < 0) return 0;
+    for (int i = 0; i < n; i++) {
+        upsertScan(WiFi.SSID(i), WiFi.RSSI(i), WiFi.encryptionType(i));
+    }
+    // Sort by descending RSSI so the strongest networks come first.
+    std::sort(s_scan.begin(), s_scan.end(),
+              [](const ScanResult &a, const ScanResult &b) {
+                  return a.rssi > b.rssi;
+              });
+    WiFi.scanDelete();
+    return (int)s_scan.size();
+}
+
+int netScanCount() { return (int)s_scan.size(); }
+const ScanResult *netScanResult(int idx) {
+    if (idx < 0 || idx >= (int)s_scan.size()) return nullptr;
+    return &s_scan[idx];
+}
+
+// ---- mDNS / discovery (stubs) -------------------------------------------
+void netStartMdns(const char *)  {}
+void netStopMdns()               {}
+void netBroadcastPresence()      {}
