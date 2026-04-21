@@ -1,0 +1,21 @@
+21-4-2026
+
+Wifi Connection Logic implementation.
+
+This update is for simplifying the user experience around setting up a wifi connection. Requirements below:
+
+1. Store multiple SSID/PWD combinations these should be accessed one by one until a connection is made, the order
+should be possible to re-order at a later date - bear this in mind with the design.
+
+2. On startup show the SSIDs that are available (by wifi scan) and their relative SSID. Limit to the size of the
+screen.
+
+3. If, before connection is made, button 3 is pressed then enter Wifi Setup mode to add another SSID to the list.
+Show on the screen that we are entering Wifi Set up mode, also prompt the user to press button 3 to enter that mode.
+
+4. Wifi Setup happens in 1 of two ways. 
+    A. AS currently using the CLI - modify the CLI to allow the user to select an SSID from the list of available (or specify their own).
+    B. Create a wifi access point that we can connect to (call it WS-InternetRadio) and where we can provide
+    SSID credentials. The list of encoutnered SSIDs should be shown on the webpage with the ability to select (or specify own)
+    C. The wifi access point should only be active during the credential gathering phase, othewise inactive.
+
