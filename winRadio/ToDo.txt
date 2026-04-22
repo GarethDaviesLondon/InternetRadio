@@ -3,36 +3,57 @@ ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
 == Open / next up ==============================================================
 
-A. Log / last-connected network
+1. The "off" deep sleep is not working, neither is the button 1&3 reboot.
+
+2. Log / last-connected network
    - Add a "last joined" mark in wifi list so it's easy to see which saved
      slot the radio is currently on; useful when you have several home/work
      networks stored.
 
-B. mDNS health
+3. mDNS health
    - ESPmDNS occasionally stops responding after a router reboot. Add a
      30 s heartbeat that re-calls MDNS.begin() if the service query stops
      resolving. (Low-effort; 10 lines in web.cpp.)
 
-C. Theme JSON
+4. Theme JSON
    - Feed the `Theme` struct in display.cpp from a JSON file on SD so the
      device is skinnable without a recompile. Needs SD mount first.
 
-D. Touch screen driver
+5. Touch screen driver
    - input.h already declares the INPUT_TOUCH_TAP event. Pick the chip
      (XPT2046 vs GT911 depending on the board variant) and produce events.
 
-E. Stations on SD + station editor
+6. Stations on SD + station editor
    - Replace the hardcoded preset list (stations.cpp) with a JSON file on
      SD. The web UI gets a dedicated /stations page for add / remove / edit
      / reorder -- same UX pattern as the wifi list in the CLI today.
 
+     
+7. Power-aware display dimming
+   - Ramp down backlight after N minutes of idle; wake on any button or
+     web request. Simple analogWrite(PIN_LCD_BL, ...) in power.cpp.
+
+
+8. mDNS during AP provisioning
+   - Already pointed the DNSServer to answer everything with the AP's IP
+     (so http://radio.setup works), but adding mDNS here too would let
+     macOS / iOS find http://on8cit-setup.local out of the box.
+
+9. Volume with steps > 5
+   - The on-screen bar and the button step both assume 1..5. The Audio
+     library accepts 0..21; 5 steps is very coarse.  Map buttons to
+     "big step" and the web UI to "fine" (1..21)
+
+10.  EQ
+   - ESP32-audioI2S has bass / mid / treble setters. A little EQ panel in
+     the web UI.
+
+== Open  not to be implemented yet ==============================================================
+
+
 F. Recording
    - storage.h stubs call it out. Write the raw stream chunks plus an
      index sidecar so seeking works. Needs SD.
-
-G. Power-aware display dimming
-   - Ramp down backlight after N minutes of idle; wake on any button or
-     web request. Simple analogWrite(PIN_LCD_BL, ...) in power.cpp.
 
 H. mDNS during AP provisioning
    - Already pointed the DNSServer to answer everything with the AP's IP
