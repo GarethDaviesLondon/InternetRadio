@@ -1,162 +1,162 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
 
-Implement the following and update the notes in this file as to what was done.
-Make and document assumptions as internet connection is patchy.
+== Changes made in the latest round (22/23-4-2026) ==============================
 
-1. The "off" deep sleep is not working, neither is the button 1&3 reboot.
+  1. Deep sleep + L+R reboot now work.
+     - SLEEP now fires on clean RELEASE of a Left-only press (was firing
+       on press, which raced the reboot combo). R held at any time while
+       L is down latches a "combo seen" flag so sleep is suppressed.
+     - Right-button volume events are also suppressed while Left is held
+       so the combo doesn't spam volume changes.
+     - powerDeepSleep() now enables the RTC pull-up on GPIO 0 and puts
+       the pin in RTC mode before enabling ext0 wake. Without this the
+       pin floats in deep sleep and wake was either instant or never.
 
-2. Log / last-connected network
-   - Add a "last joined" mark in wifi list so it's easy to see which saved
-     slot the radio is currently on; useful when you have several home/work
-     networks stored.
+  2. "Last joined" mark in `wifi list`.
+     - netLastJoinedSlot() records the slot that succeeded (-1 until
+       netConnect returns true). `wifi list` shows a leading ' *' and
+       trailing "[joined]" on that slot so it's obvious which of several
+       saved networks is the active one.
 
-3. mDNS health
-   - ESPmDNS occasionally stops responding after a router reboot. Add a
-     30 s heartbeat that re-calls MDNS.begin() if the service query stops
-     resolving. (Low-effort; 10 lines in web.cpp.)
+  3. mDNS heartbeat.
+     - web.cpp re-calls MDNS.end() + MDNS.begin(hostname) every 30 s
+       while WiFi is connected. If a router reboot / lease expiry had
+       silently dropped the announcement, the next heartbeat brings it
+       back without a reboot.
 
-4. Theme JSON
-   - Feed the `Theme` struct in display.cpp from a JSON file on SD so the
-     device is skinnable without a recompile. Needs SD mount first.
+  4. Theme JSON (ini form, actually).
+     - SD mount is wired up (real SD_MMC, 4-bit, pin map from Volos's
+       sketch). If /theme.ini exists, displayLoadThemeFromSd() parses
+       `key = value` lines and updates the Theme struct. Values accept
+       `0xRRGGBB`, `0xXXXX` (RGB565 literal) or `R,G,B` decimal. No
+       new lib_deps -- internet was patchy, so I avoided adding
+       ArduinoJson for now. Keys: bg, orange, panelBg, panelBorder,
+       volumeBar.
 
-5. Touch screen driver
-   - input.h already declares the INPUT_TOUCH_TAP event. Pick the chip
-     (XPT2046 vs GT911 depending on the board variant) and produce events.
+  5. Touch driver.
+     - New touch.cpp scaffolds an XPT2046 resistive-touch driver behind
+       -DUSE_TOUCH_XPT2046 build flag. Disabled by default because the
+       Volos-reference Waveshare board is buttons-only. If your SKU has
+       a touch overlay, flip the flag (and adjust TOUCH_CS / TOUCH_IRQ
+       in config.h if the wiring is non-default) and the existing
+       INPUT_TOUCH_TAP path activates.
+     - For a GT911 (capacitive, I2C) variant: same API surface, different
+       internal bus -- see the comment at the top of touch.cpp.
 
-6. Stations on SD + station editor
-   - Replace the hardcoded preset list (stations.cpp) with a JSON file on
-     SD. The web UI gets a dedicated /stations page for add / remove / edit
-     / reorder -- same UX pattern as the wifi list in the CLI today.
+  6. Stations on SD.
+     - stationsLoadFromSd() reads /stations.csv ("name,url" lines;
+       '#'/';' starts a comment, CR stripped). Replaces the compiled
+       preset list when at least one line parses. No web editor yet;
+       for now edit the file on your PC and call `sd reload` from the
+       CLI. The in-memory cap is 32 stations (kMaxStations in
+       stations.cpp); tweak if you want more.
 
-     
-7. Power-aware display dimming
-   - Ramp down backlight after N minutes of idle; wake on any button or
-     web request. Simple analogWrite(PIN_LCD_BL, ...) in power.cpp.
+  7. Backlight dimming.
+     - display.cpp tracks last-activity time; after 60 s of nothing the
+       PWM duty drops from 110 to 20 (roughly 60 % -> 10 %). Any
+       physical button, any CLI keystroke, and any connected web
+       client wakes it back to full. Thresholds (kBacklightActive,
+       kBacklightDim, kIdleDimMs) are named constants so a later theme
+       file can override them without touching code.
 
+  8. mDNS during AP provisioning.
+     - provisionStart() now brings up on8cit-setup.local in AP mode
+       alongside the existing DNSServer wildcard. LCD setup page also
+       advertises the new URL. Phones that support Bonjour auto-route;
+       others still see the captive-portal page via the wildcard.
 
-8. mDNS during AP provisioning
-   - Already pointed the DNSServer to answer everything with the AP's IP
-     (so http://radio.setup works), but adding mDNS here too would let
-     macOS / iOS find http://on8cit-setup.local out of the box.
+  9. Finer volume.
+     - Audio module stores raw 0..21 internally. audioSetVolume(1..5)
+       still works (buttons + on-screen bar) and maps big-step to 4, 8,
+       12, 16, 20. New audioSetVolumeRaw(0..21) is what the web slider
+       uses.
+     - NVS migration: any previously-saved "1..5 bucket" value is
+       multiplied by 4 on load, so existing devices keep their volume
+       feel after the update.
 
-9. Volume with steps > 5
-   - The on-screen bar and the button step both assume 1..5. The Audio
-     library accepts 0..21; 5 steps is very coarse.  Map buttons to
-     "big step" and the web UI to "fine" (1..21)
+ 10. 3-band EQ.
+     - Web UI gets Bass / Mid / Treble sliders (each -40..+6 dB).
+       Posts to POST /api/eq with b, m, t. The audio module calls
+       s_audio.setTone() and persists the values to NVS. Restored on
+       boot as part of audioRestoreSession().
 
-10.  EQ
-   - ESP32-audioI2S has bass / mid / treble setters. A little EQ panel in
-     the web UI.
+ 11. New CLI: `sd status`, `sd ls <path>`, `sd reload`.
+     - Quick way to confirm the card mounted, browse it, and re-read
+       stations.csv / theme.ini without a reboot.
 
-== Open  not to be implemented yet ==============================================================
-
-
-F. Recording
-   - storage.h stubs call it out. Write the raw stream chunks plus an
-     index sidecar so seeking works. Needs SD.
-
-H. mDNS during AP provisioning
-   - Already pointed the DNSServer to answer everything with the AP's IP
-     (so http://radio.setup works), but adding mDNS here too would let
-     macOS / iOS find http://on8cit-setup.local out of the box.
-
-I. Volume with steps > 5
-   - The on-screen bar and the button step both assume 1..5. The Audio
-     library accepts 0..21; 5 steps is very coarse.  Map buttons to
-     "big step" and the web UI to "fine" (1..21)
-
-J. Stereo / mono toggle + EQ
-   - ESP32-audioI2S has bass / mid / treble setters. A little EQ panel in
-     the web UI would be a very cheap UX win.
-
-
-== Changes made in the latest round =============================================
-
-(22-4-2026 follow-up.)
-
-  0. Boot Morse "R" quieter.
-     - Sample amplitude in audioPlayMorseR() scaled to the equivalent of
-       user volume level 2 (was level-5-ish full-scale).
-     - NB: the boot chirp runs before the Audio library starts, so it
-       uses a compile-time constant rather than audioVolume(). If you
-       want the chirp to match whichever volume you last set, reorder
-       setup() so audioRestoreSession() runs before audioPlayMorseR()
-       and drop the constant in favour of audioVolume().
-
-
-(22-4-2026, responding to the first "Updates" block below.)
-
-  1. Auto-reboot after AP-based save.
-     - POST /save responds with "radio will reboot in a moment", then
-       provisionPoll() latches a 2 s timer and ESP.restart()s. No user
-       action required.
-
-  2. Physical reboot combo.
-     - Holding Left + Right simultaneously for 3 s triggers ESP.restart()
-       from the main loop (input.cpp: inputRebootCombo).
-     - The normal "left-press = deep sleep" event is suppressed while the
-       right button is also pressed so the combo can win the race.
-
-  3. Volume + station persisted across reboots.
-     - Stored in the NVS "radio" namespace (keys "vol", "sta") on every
-       audioSetVolume / audioSelectStation call.
-     - audioRestoreSession() reads them at boot; audioStartLast() resumes
-       the remembered slot instead of always starting at 0.
-
-  4. AP renamed.
-     - PROVISION_AP_SSID is now "ON8CIT-WinRadio-Setup".
-
-  5. Web-based CLI.
-     - After STA connect the sketch brings up a WebServer on port 80 and
-       announces itself via mDNS as on8cit-radio.local. The home page
-       shows a Now Playing card, Vol +/-, Prev/Next, a station grid that
-       highlights the current slot, and a Reboot button.
-     - REST-ish API for automation: GET /api/state (JSON snapshot), POST
-       /api/station n=N, POST /api/next, /api/prev, /api/volume (v=N or
-       d=+/-1), /api/reboot.
-     - How to find the server on the LAN without typing the IP:
-         - Primary: http://on8cit-radio.local (mDNS; works on macOS, iOS,
-           Windows 10+, most modern Linux).
-         - Secondary fallbacks (not yet implemented): periodic UDP
-           broadcast with a JSON blob; SSDP announcement. Add later if
-           mDNS proves unreliable on your router.
-
-  6. OLED rework.
-     - Main screen's 8-line station list replaced by a Now Playing card:
-       big station name (derived from the URL via audioStationDisplayName
-       -- e.g. groovesalad, radioparadise, radiocaroline), slot index
-       "Station N of M", and the ICY-reported station name when the
-       stream sends one.
-
-  7. ON8CIT WebRadio banner.
-     - New displayShowBootSplash() with a broadcast-waves logo +
-       wordmark, shown while WiFi is scanning / connecting.
-     - Every other setup screen (scan list, connecting, setup portal)
-       wears a compact version of the same banner.
-     - Main UI top bar now reads "ON8CIT WebRadio".
-     - Every page served by the provisioning portal and the LAN web UI
-       has the same ON8CIT WebRadio header band.
-
-  8. Factoring stayed clean.
-     - All changes landed inside the existing modules (config.h,
-       storage.cpp, radio_audio.cpp, display.cpp, input.cpp, net.cpp,
-       provision.cpp, web.cpp). The .ino orchestrator remained ~100
-       lines. No new modules were needed this round.
+All changes stayed inside the existing module boundaries; the only new
+file is touch.cpp (off by default).
 
 
-== Completed in earlier rounds (kept for history) =============================
+== Open / next up ===============================================================
 
-21-4-2026
-Wifi Connection Logic implementation.
-Requirements:
- 1. Store multiple SSID/PWD combinations, tried one by one until a
-    connection is made, re-orderable later.
- 2. On startup show the SSIDs that are available (by WiFi scan) and their
-    relative signal strength. Limit to the screen size.
- 3. If, before a connection is made, button 3 is pressed then enter WiFi
-    Setup mode to add another SSID.
- 4. WiFi Setup happens in one of two ways:
-    A. CLI -- select from the scanned list or type an SSID.
-    B. AP "WS-InternetRadio" hosting a setup webpage.
-    C. AP only active during credential gathering.
+Concrete follow-ups that would build naturally on what's in now:
+
+A. Web-based station editor.
+   - /stations page with add / remove / edit / drag-reorder; POST
+     /api/stations persists back to /stations.csv on the SD card. The
+     CLI + hardcoded-preset fallback stays for when the card is pulled.
+
+B. Web-based WiFi management.
+   - The CLI already has wifi add/remove/move/clear. Mirror that with
+     /wifi on the web UI so the whole device is configurable from a
+     phone.
+
+C. Touch calibration.
+   - If you populate the touch hardware, touch.cpp uses placeholder
+     mapping (raw 300..3800 -> 0..239). A /touch_calibrate page that
+     walks the user through 4 corner taps, then writes the measured
+     min/max to NVS or /touch.ini on SD.
+
+D. Theme hot-reload from the web UI.
+   - Upload a theme.ini to SD via the web UI and call
+     displayLoadThemeFromSd immediately; no reboot needed.
+
+E. Recording.
+   - Still deferred. Needs: a "tee" in the audio path that dumps the
+     raw stream chunks to SD alongside an index sidecar, plus a
+     /recordings web page. Would be a substantial piece of work.
+
+F. Scrollable long SSID list in the AP portal.
+   - The AP scan page works but in a busy WiFi environment it gets
+     long. Add a search / filter input at the top.
+
+G. Proper boot-screen logo.
+   - Current logo is geometric (3 concentric rings + core dot). If you
+     want a bitmap, drop a 32x32 or 48x48 RGB565 .h asset into
+     winRadio/ and swap drawLogo() for a drawRGBBitmap call.
+
+H. Battery-aware behaviour.
+   - When the battery drops below ~3.2 V: warn on LCD, reduce backlight
+     cap, or auto-sleep. Uses powerBatteryVolts() already.
+
+I. State-push web UI.
+   - Currently the web UI is one-shot (reload to see new song title /
+     bitrate). A WebSocket at /ws pushing /api/state deltas every 500 ms
+     would make the page feel like a real remote. Adds one dep
+     (AsyncWebServer) -- consider once internet access is better.
+
+J. Central theme + layout registry.
+   - The Theme struct covers colours. Layout (panel positions, font
+     sizes) is still hardcoded. A v2 would put layout offsets in the
+     same struct so a /theme.ini can restyle more than just colours.
+
+
+== Completed in earlier rounds (kept for history) ===============================
+
+22-4-2026 Updates block:
+  * Reduce boot Morse "R" volume to level 2. Done.
+  * Auto-reboot after AP-based save. Done.
+  * L+R 3 s reboot combo. Done (and re-fixed in the latest round).
+  * Persist volume + station across reboots. Done (EQ added this round).
+  * Rename AP to ON8CIT-WinRadio-Setup. Done.
+  * LAN web control + mDNS discovery. Done.
+  * OLED: boot splash + ON8CIT banner + current station card. Done.
+
+21-4-2026 -- WiFi Connection Logic implementation:
+  * Multiple saved networks tried in order, re-orderable. Done.
+  * Boot-time WiFi scan visible on LCD. Done.
+  * Right button during pre-connect -> setup mode. Done.
+  * Two setup paths: CLI `wifi add` and AP `ON8CIT-WinRadio-Setup`
+    captive portal. AP only active during setup. Done.
