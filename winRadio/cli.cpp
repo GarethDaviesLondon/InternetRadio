@@ -8,9 +8,12 @@
 #include "stations.h"
 #include "power.h"
 #include "provision.h"
+#include "display.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <SD_MMC.h>
+#include <FS.h>
 
 static const char *PROMPT = "radio> ";
 
@@ -83,6 +86,10 @@ static void cmdHelp() {
     outln(F("  wifi move <from> <to>  Reorder saved networks"));
     outln(F("  wifi clear             Erase ALL saved networks"));
     outln(F("  reconnect              Try saved networks again"));
+    outln();
+    outln(F("  sd status              Show SD card state"));
+    outln(F("  sd ls <path>           List a directory"));
+    outln(F("  sd reload              Re-read stations.csv + theme.ini"));
     outln();
     outln(F("  log on | off           Stream audio library events to serial"));
     outln(F("  reboot, r              Restart the device"));
@@ -287,6 +294,47 @@ static void cmdReconnect() {
     outln(netConnected() ? "OK." : "No saved network connected.");
 }
 
+static void cmdSd(const String &arg) {
+    String a = arg; a.trim();
+    if (a.length() == 0 || a.equalsIgnoreCase("status")) {
+        Serial.print(F("SD : "));
+        outln(storageSdMounted() ? "mounted" : "not mounted");
+        if (storageSdMounted()) {
+            Serial.print(F("stations.csv : "));
+            outln(storageSdExists("/stations.csv") ? "present" : "missing");
+            Serial.print(F("theme.ini    : "));
+            outln(storageSdExists("/theme.ini") ? "present" : "missing");
+        }
+        return;
+    }
+    if (a.startsWith("ls")) {
+        String p = a.substring(2); p.trim();
+        if (p.length() == 0) p = "/";
+        if (!storageSdMounted()) { outln(F("SD not mounted.")); return; }
+        File root = SD_MMC.open(p);
+        if (!root || !root.isDirectory()) { outln(F("Not a directory.")); return; }
+        File f = root.openNextFile();
+        outln();
+        while (f) {
+            Serial.print(f.isDirectory() ? F("  [DIR] ") : F("        "));
+            Serial.print(f.name());
+            if (!f.isDirectory()) { Serial.print(F("  ")); Serial.print(f.size()); Serial.print(F(" B")); }
+            outln();
+            f = root.openNextFile();
+        }
+        outln();
+        return;
+    }
+    if (a.equalsIgnoreCase("reload")) {
+        if (!storageSdMounted()) { outln(F("SD not mounted.")); return; }
+        int n = stationsLoadFromSd();
+        bool t = displayLoadThemeFromSd();
+        Serial.printf("Reloaded %d stations; theme %s.\r\n", n, t ? "applied" : "unchanged");
+        return;
+    }
+    outln(F("Usage: sd [status|ls <path>|reload]"));
+}
+
 // ---- dispatcher ----------------------------------------------------------
 
 static bool eqi(const String &a, const char *b) { return a.equalsIgnoreCase(b); }
@@ -326,6 +374,7 @@ static void dispatch(const String &raw) {
         cmdWifiMove(rest);
     }
     else if (eqi(cmd, "reconnect"))                                          cmdReconnect();
+    else if (eqi(cmd, "sd"))                                                 cmdSd(arg);
     else if (eqi(cmd, "log")) {
         if (arg.length() == 0) { Serial.print(F("log: ")); outln(audioLogEnabled() ? "on" : "off"); }
         else if (eqi(arg, "on"))  { audioSetLogEnabled(true);  outln(F("log: on"));  }

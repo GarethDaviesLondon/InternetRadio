@@ -1,5 +1,18 @@
 #include "storage.h"
 #include <Preferences.h>
+#include <SD_MMC.h>
+#include <FS.h>
+
+// SD pin assignments from Volos's original sketch. If a later Waveshare
+// revision moves these, override in config.h.
+#ifndef PIN_SD_CLK
+  #define PIN_SD_CLK 16
+  #define PIN_SD_CMD 15
+  #define PIN_SD_D0  17
+  #define PIN_SD_D1  18
+  #define PIN_SD_D2  13
+  #define PIN_SD_D3  14
+#endif
 
 namespace {
 Preferences g_prefs;
@@ -172,10 +185,64 @@ void wifiClearAllNetworks() {
     persistAll();
 }
 
-// ---- SD card (stub) ------------------------------------------------------
-// TODO(SD): SD_MMC pins on this board are clk=16 cmd=15 d0=17 d1=18 d2=13
-// d3=14 (from Volos's original sketch). Wire SD_MMC.setPins() + .begin() here.
+// ---- SD card -------------------------------------------------------------
 
-bool storageSdMount()    { return false; }
-bool storageSdMounted()  { return g_sdMounted; }
-void storageSdUnmount()  { g_sdMounted = false; }
+bool storageSdMount() {
+    if (g_sdMounted) return true;
+    if (!SD_MMC.setPins(PIN_SD_CLK, PIN_SD_CMD,
+                        PIN_SD_D0, PIN_SD_D1, PIN_SD_D2, PIN_SD_D3)) {
+        Serial.println("sd: setPins FAILED");
+        return false;
+    }
+    // 4-bit mode, default mount point, don't format on failure.
+    if (!SD_MMC.begin("/sdcard", /*mode1bit=*/false, /*format_if_mount_failed=*/false)) {
+        Serial.println("sd: begin FAILED (card missing? formatted as FAT?)");
+        return false;
+    }
+    g_sdMounted = true;
+    uint64_t sizeMb = SD_MMC.cardSize() / (1024ULL * 1024ULL);
+    Serial.printf("sd: mounted %s card, %llu MB\r\n",
+                  SD_MMC.cardType() == CARD_MMC  ? "MMC" :
+                  SD_MMC.cardType() == CARD_SD   ? "SD"  :
+                  SD_MMC.cardType() == CARD_SDHC ? "SDHC" : "?",
+                  sizeMb);
+    return true;
+}
+
+bool storageSdMounted() { return g_sdMounted; }
+
+void storageSdUnmount() {
+    if (!g_sdMounted) return;
+    SD_MMC.end();
+    g_sdMounted = false;
+}
+
+bool storageSdExists(const char *path) {
+    if (!g_sdMounted) return false;
+    return SD_MMC.exists(path);
+}
+
+bool storageSdReadText(const char *path, String &out, size_t maxBytes) {
+    out = "";
+    if (!g_sdMounted) return false;
+    File f = SD_MMC.open(path, FILE_READ);
+    if (!f) return false;
+    size_t n = f.size();
+    if (n > maxBytes) n = maxBytes;
+    out.reserve(n);
+    while (out.length() < n && f.available()) {
+        char c = (char)f.read();
+        out += c;
+    }
+    f.close();
+    return true;
+}
+
+bool storageSdWriteText(const char *path, const String &content) {
+    if (!g_sdMounted) return false;
+    File f = SD_MMC.open(path, FILE_WRITE);
+    if (!f) return false;
+    size_t wrote = f.print(content);
+    f.close();
+    return wrote == content.length();
+}

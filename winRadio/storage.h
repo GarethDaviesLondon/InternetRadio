@@ -38,7 +38,19 @@ bool        wifiRemoveNetwork(int idx);
 bool        wifiMoveNetwork(int from, int to);
 void        wifiClearAllNetworks();
 
-// ---- SD card (stub) ------------------------------------------------------
+// ---- SD card -------------------------------------------------------------
+// Assumes the pin assignments from Volos's original sketch:
+//   clk=16 cmd=15 d0=17 d1=18 d2=13 d3=14 (SD_MMC 4-bit).
 bool     storageSdMount();
 bool     storageSdMounted();
 void     storageSdUnmount();
+
+// Read a whole UTF-8 text file into a String. Returns false on any error
+// or if SD isn't mounted. Silently truncates at maxBytes.
+bool     storageSdReadText(const char *path, String &out, size_t maxBytes = 8192);
+
+// Write a whole String as text (overwrite). Returns false on any error.
+bool     storageSdWriteText(const char *path, const String &content);
+
+// Simple presence check.
+bool     storageSdExists(const char *path);

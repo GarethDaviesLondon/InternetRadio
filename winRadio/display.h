@@ -24,6 +24,12 @@ extern Theme g_theme;
 void displayBegin();        // panel up, sprites allocated, font loaded, palette built
 void displaySetTheme(const Theme &t);
 
+// Read an ini-style file from SD (key=value per line; '#' and ';' start
+// comments; values either as 0xRRGGBB, 0xXXXX RGB565, or "R,G,B" triples).
+// Silently no-ops if SD isn't mounted or the file isn't present.
+// Recognised keys: bg, orange, panelBg, panelBorder, volumeBar.
+bool displayLoadThemeFromSd(const char *path = "/theme.ini");
+
 // Per-frame APIs. drawMain() repaints the whole UI; drawScroll() advances
 // the bottom song-title ticker. Cheap to call drawScroll() every ~30 ms.
 void displayDrawMain();

@@ -4,6 +4,7 @@
 #include "net.h"
 #include "power.h"
 #include "stations.h"
+#include "storage.h"
 #include "NotoSansBold15.h"
 
 #include <cstdio>
@@ -52,6 +53,67 @@ static void buildDefaultTheme() {
 }
 
 void displaySetTheme(const Theme &t) { g_theme = t; }
+
+// Parse a colour literal:  0x1F2E  (RGB565),
+//                          0xRRGGBB (hex triplet, converted to RGB565),
+//                          R,G,B    (decimal, 0..255, converted to RGB565).
+static bool parseColor(String v, uint16_t *out) {
+    v.trim();
+    if (v.length() == 0) return false;
+    if (v.startsWith("0x") || v.startsWith("0X")) {
+        String hex = v.substring(2);
+        unsigned long n = strtoul(hex.c_str(), nullptr, 16);
+        if (hex.length() <= 4) {
+            *out = (uint16_t)(n & 0xFFFF);
+        } else {
+            uint8_t r = (n >> 16) & 0xFF;
+            uint8_t g = (n >>  8) & 0xFF;
+            uint8_t b =  n        & 0xFF;
+            *out = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        }
+        return true;
+    }
+    int c1 = v.indexOf(','), c2 = v.indexOf(',', c1 + 1);
+    if (c1 > 0 && c2 > 0) {
+        int r = v.substring(0, c1).toInt();
+        int g = v.substring(c1 + 1, c2).toInt();
+        int b = v.substring(c2 + 1).toInt();
+        *out = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        return true;
+    }
+    return false;
+}
+
+bool displayLoadThemeFromSd(const char *path) {
+    if (!storageSdExists(path)) return false;
+    String text;
+    if (!storageSdReadText(path, text)) return false;
+
+    Theme t = g_theme;
+    int start = 0;
+    int applied = 0;
+    while (start < (int)text.length()) {
+        int nl = text.indexOf('\n', start);
+        String line = (nl < 0) ? text.substring(start) : text.substring(start, nl);
+        start = (nl < 0) ? text.length() : nl + 1;
+        line.trim();
+        if (line.length() == 0 || line.startsWith("#") || line.startsWith(";")) continue;
+        int eq = line.indexOf('=');
+        if (eq <= 0) continue;
+        String key = line.substring(0, eq); key.trim(); key.toLowerCase();
+        String val = line.substring(eq + 1); val.trim();
+        uint16_t c; if (!parseColor(val, &c)) continue;
+        if      (key == "bg")          { t.bg          = c; applied++; }
+        else if (key == "orange")      { t.orange      = c; applied++; }
+        else if (key == "panelbg")     { t.panelBg     = c; applied++; }
+        else if (key == "panelborder") { t.panelBorder = c; applied++; }
+        else if (key == "volumebar")   { t.volumeBar   = c; applied++; }
+    }
+    if (applied == 0) return false;
+    g_theme = t;
+    Serial.printf("display: loaded %d theme key(s) from %s\r\n", applied, path);
+    return true;
+}
 
 // --- Begin ---------------------------------------------------------------
 

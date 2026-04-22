@@ -64,11 +64,18 @@ void setup() {
     inputBegin();
     powerBegin();
 
+    // SD card is optional. If it mounts, use /theme.ini and /stations.csv
+    // to override the compiled defaults; otherwise silently continue.
+    if (storageSdMount()) {
+        stationsLoadFromSd();
+    }
+
     audioCodecInit();
     audioPlayMorseR();   // dot-dash-dot self-test before Audio lib grabs I2S 0
     audioRestoreSession();   // read last volume + station from NVS
 
     displayBegin();
+    if (storageSdMounted()) displayLoadThemeFromSd();
     displayShowBootSplash("Scanning WiFi...");
 
     netBegin();
