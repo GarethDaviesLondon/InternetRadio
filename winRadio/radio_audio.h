@@ -29,8 +29,20 @@ bool audioSelectStation(int idx); // true on success
 void audioNextStation();
 void audioPrevStation();
 
-int  audioVolume();               // 1..5
-void audioSetVolume(int v);       // clamped 1..5
+int  audioVolume();               // 1..5 bucket (for the on-screen bar)
+void audioSetVolume(int v);       // 1..5 "big step" -- maps to raw 4/8/12/16/20
+
+// Fine-grained volume, used by the web UI slider. 0..21 passes straight to
+// ESP32-audioI2S setVolume(). audioVolume() is a rounded-up bucket of this.
+int  audioVolumeRaw();
+void audioSetVolumeRaw(int raw);
+
+// Three-band tone control (bass, mid, treble). Each in -40..+6 dB.
+// Persists to NVS so the saved EQ survives reboots.
+void audioSetEq(int8_t bass, int8_t mid, int8_t treble);
+int8_t audioEqBass();
+int8_t audioEqMid();
+int8_t audioEqTreble();
 
 // ---- State observed via callbacks ----------------------------------------
 const char *audioCurStation();    // station name from ICY (may be empty)

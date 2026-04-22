@@ -109,6 +109,10 @@ String stateJson() {
     j += F("\"song\":\"");     j += jsonEscape(audioSongPlaying()); j += F("\",");
     j += F("\"bitrate\":");    j += audioBitrate();           j += F(",");
     j += F("\"volume\":");     j += audioVolume();            j += F(",");
+    j += F("\"volumeRaw\":");  j += audioVolumeRaw();         j += F(",");
+    j += F("\"eqBass\":");     j += audioEqBass();            j += F(",");
+    j += F("\"eqMid\":");      j += audioEqMid();             j += F(",");
+    j += F("\"eqTreble\":");   j += audioEqTreble();          j += F(",");
     j += F("\"running\":");    j += audioIsRunning() ? "true" : "false";
     j += F("}");
     return j;
@@ -138,15 +142,38 @@ void handleIndex() {
     p += F("</div></div>");
 
     p += F("<div class=card><h2>Controls</h2><div class=row>");
-    p += F("<form method=POST action=/api/volume><input type=hidden name=d value=-1>"
-           "<button>Vol &minus;</button></form>");
-    p += F("<form method=POST action=/api/volume><input type=hidden name=d value=1>"
-           "<button>Vol &plus;</button></form>");
     p += F("<form method=POST action=/api/prev><button>Prev</button></form>");
     p += F("<form method=POST action=/api/next><button>Next</button></form>");
     p += F("<form method=POST action=/api/reboot onsubmit=\"return confirm('Reboot the radio?')\">"
            "<button class=warn>Reboot</button></form>");
-    p += F("</div></div>");
+    p += F("</div>");
+
+    // Fine volume slider (0..21). Uses POST /api/volume?raw=N.
+    p += F("<form method=POST action=/api/volume style='margin-top:.8em'>"
+           "<label>Volume (fine, 0&ndash;21): <output name=vo id=vo>");
+    p += audioVolumeRaw();
+    p += F("</output></label>"
+           "<input type=range name=raw min=0 max=21 value=");
+    p += audioVolumeRaw();
+    p += F(" oninput=\"vo.value=this.value\">"
+           "<button type=submit>Apply</button></form>");
+
+    // 3-band EQ. Values -40..+6 dB.
+    p += F("<form method=POST action=/api/eq style='margin-top:.8em'>"
+           "<label>Bass <output id=eb>"); p += audioEqBass();
+    p += F("</output> dB <input type=range name=b min=-40 max=6 value=");
+    p += audioEqBass();
+    p += F(" oninput=\"eb.value=this.value\"></label>");
+    p += F("<label>Mid <output id=em>"); p += audioEqMid();
+    p += F("</output> dB <input type=range name=m min=-40 max=6 value=");
+    p += audioEqMid();
+    p += F(" oninput=\"em.value=this.value\"></label>");
+    p += F("<label>Treble <output id=et>"); p += audioEqTreble();
+    p += F("</output> dB <input type=range name=t min=-40 max=6 value=");
+    p += audioEqTreble();
+    p += F(" oninput=\"et.value=this.value\"></label>");
+    p += F("<button type=submit>Apply EQ</button></form>");
+    p += F("</div>");
 
     p += F("<div class=card><h2>Stations</h2><div class=grid>");
     for (int i = 0; i < n; i++) {
@@ -166,7 +193,8 @@ void handleIndex() {
            "<div>POST /api/station</div><div>Body: n=&lt;0..N-1&gt;</div>"
            "<div>POST /api/next</div><div></div>"
            "<div>POST /api/prev</div><div></div>"
-           "<div>POST /api/volume</div><div>Body: v=&lt;1..5&gt; or d=&pm;1</div>"
+           "<div>POST /api/volume</div><div>Body: raw=&lt;0..21&gt;  or  v=&lt;1..5&gt;  or  d=&pm;1</div>"
+           "<div>POST /api/eq</div><div>Body: b=&lt;-40..6&gt; m=&lt;-40..6&gt; t=&lt;-40..6&gt;</div>"
            "<div>POST /api/reboot</div><div></div>"
            "</div></div>");
 
@@ -191,13 +219,26 @@ void handleNext()  { audioNextStation(); s_http.sendHeader("Location", "/"); s_h
 void handlePrev()  { audioPrevStation(); s_http.sendHeader("Location", "/"); s_http.send(302); }
 
 void handleVolume() {
-    if (s_http.hasArg("v")) {
+    if (s_http.hasArg("raw")) {
+        audioSetVolumeRaw(s_http.arg("raw").toInt());
+    } else if (s_http.hasArg("v")) {
         audioSetVolume(s_http.arg("v").toInt());
     } else if (s_http.hasArg("d")) {
         int delta = s_http.arg("d").toInt();
-        int v = audioVolume() + delta;
-        audioSetVolume(v);
+        audioSetVolume(audioVolume() + delta);
     }
+    s_http.sendHeader("Location", "/");
+    s_http.send(302);
+}
+
+void handleEq() {
+    int8_t b = audioEqBass();
+    int8_t m = audioEqMid();
+    int8_t t = audioEqTreble();
+    if (s_http.hasArg("b")) b = (int8_t)s_http.arg("b").toInt();
+    if (s_http.hasArg("m")) m = (int8_t)s_http.arg("m").toInt();
+    if (s_http.hasArg("t")) t = (int8_t)s_http.arg("t").toInt();
+    audioSetEq(b, m, t);
     s_http.sendHeader("Location", "/");
     s_http.send(302);
 }
@@ -240,6 +281,7 @@ void webBegin() {
     s_http.on("/api/next",     HTTP_POST, handleNext);
     s_http.on("/api/prev",     HTTP_POST, handlePrev);
     s_http.on("/api/volume",   HTTP_POST, handleVolume);
+    s_http.on("/api/eq",       HTTP_POST, handleEq);
     s_http.on("/api/reboot",   HTTP_POST, handleReboot);
     s_http.onNotFound(handleNotFound);
     s_http.begin();

@@ -18,7 +18,13 @@
 
 static Audio    s_audio;
 static int      s_chosen = 0;
-static int      s_volume = 2;
+// Volume lives on the 0..21 scale that ESP32-audioI2S accepts. The old
+// 1..5 "big step" is derived from this via a rounding bucket so the
+// on-screen bar and the buttons still behave.
+static int      s_volRaw = 8;         // equivalent to the old "level 2"
+static int8_t   s_bass   = 0;
+static int8_t   s_mid    = 0;
+static int8_t   s_treble = 0;
 static String   s_curStation;
 static String   s_song;
 static long     s_bitrate = 0;
@@ -26,10 +32,16 @@ static unsigned s_infoCount = 0;
 static bool     s_log = false;
 static String   s_displayName;        // scratch for audioStationDisplayName
 
-// Session persistence (NVS namespace "radio"): vol, sta.
+// Session persistence (NVS namespace "radio"). Keys:
+//   vol  : int 0..21 (raw)
+//   sta  : int current station index
+//   bass/mid/trb : int8 EQ bands (-40..+6 dB)
 static void persistSession() {
-    storagePutInt("radio", "vol", s_volume);
+    storagePutInt("radio", "vol", s_volRaw);
     storagePutInt("radio", "sta", s_chosen);
+    storagePutInt("radio", "bass", s_bass);
+    storagePutInt("radio", "mid",  s_mid);
+    storagePutInt("radio", "trb",  s_treble);
 }
 
 // --------------------------------------------------------------------------
@@ -199,7 +211,8 @@ bool audioBegin() {
     Audio::audio_info_callback = audioEventHandler;
     bool ok = s_audio.setPinout(PIN_I2S_BCLK, PIN_I2S_LRC, PIN_I2S_DOUT, PIN_I2S_MCLK);
     Serial.printf("audio.setPinout -> %s\r\n", ok ? "ok" : "FAIL");
-    s_audio.setVolume(s_volume * 4);
+    s_audio.setVolume(s_volRaw);
+    s_audio.setTone(s_bass, s_mid, s_treble);
     return ok;
 }
 
@@ -210,9 +223,13 @@ bool audioStartLast() {
 }
 
 void audioRestoreSession() {
-    int v = storageGetInt("radio", "vol", 2);
+    // Default 8 == old "level 2". If the saved value is <= 5 it's from an
+    // older firmware that stored the 1..5 bucket rather than raw 0..21;
+    // migrate it in-place.
+    int v = storageGetInt("radio", "vol", 8);
+    if (v <= 5) v = v * 4;
+    if (v < 0)  v = 0; if (v > 21) v = 21;
     int s = storageGetInt("radio", "sta", 0);
-    if (v < 1) v = 1; if (v > 5) v = 5;
     int n = stationsCount();
     if (n > 0) {
         if (s < 0)  s = 0;
@@ -220,9 +237,13 @@ void audioRestoreSession() {
     } else {
         s = 0;
     }
-    s_volume = v;
+    s_volRaw = v;
     s_chosen = s;
-    Serial.printf("audio: restored session -- volume=%d station=%d\r\n", s_volume, s_chosen);
+    s_bass   = (int8_t)storageGetInt("radio", "bass", 0);
+    s_mid    = (int8_t)storageGetInt("radio", "mid",  0);
+    s_treble = (int8_t)storageGetInt("radio", "trb",  0);
+    Serial.printf("audio: restored session -- volRaw=%d station=%d eq=%d/%d/%d\r\n",
+                  s_volRaw, s_chosen, s_bass, s_mid, s_treble);
 }
 
 void audioLoop() { s_audio.loop(); }
@@ -248,15 +269,46 @@ bool audioSelectStation(int idx) {
 void audioNextStation() { audioSelectStation((s_chosen + 1) % stationsCount()); }
 void audioPrevStation() { audioSelectStation((s_chosen - 1 + stationsCount()) % stationsCount()); }
 
-int  audioVolume() { return s_volume; }
+// Buttons + on-screen bar use a 1..5 "big step". Internally that maps to
+// raw 4, 8, 12, 16, 20 on the audio library's 0..21 scale.
+int  audioVolume() {
+    int bucket = (s_volRaw + 3) / 4;
+    if (bucket < 1) bucket = 1;
+    if (bucket > 5) bucket = 5;
+    return bucket;
+}
 void audioSetVolume(int v) {
     if (v < 1) v = 1;
     if (v > 5) v = 5;
-    if (v == s_volume) return;
-    s_volume = v;
-    s_audio.setVolume(s_volume * 4);
+    audioSetVolumeRaw(v * 4);
+}
+
+int  audioVolumeRaw() { return s_volRaw; }
+void audioSetVolumeRaw(int raw) {
+    if (raw < 0)  raw = 0;
+    if (raw > 21) raw = 21;
+    if (raw == s_volRaw) return;
+    s_volRaw = raw;
+    s_audio.setVolume(s_volRaw);
     persistSession();
 }
+
+void audioSetEq(int8_t bass, int8_t mid, int8_t treble) {
+    // ESP32-audioI2S accepts -40..+6 dB on each band.
+    auto clamp = [](int v) {
+        if (v < -40) v = -40;
+        if (v >   6) v =   6;
+        return (int8_t)v;
+    };
+    s_bass   = clamp(bass);
+    s_mid    = clamp(mid);
+    s_treble = clamp(treble);
+    s_audio.setTone(s_bass, s_mid, s_treble);
+    persistSession();
+}
+int8_t audioEqBass()   { return s_bass;   }
+int8_t audioEqMid()    { return s_mid;    }
+int8_t audioEqTreble() { return s_treble; }
 
 // --------------------------------------------------------------------------
 // Observed state.
