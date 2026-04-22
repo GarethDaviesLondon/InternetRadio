@@ -1,7 +1,8 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
 
-== Open / next up ==============================================================
+Implement the following and update the notes in this file as to what was done.
+Make and document assumptions as internet connection is patchy.
 
 1. The "off" deep sleep is not working, neither is the button 1&3 reboot.
 
