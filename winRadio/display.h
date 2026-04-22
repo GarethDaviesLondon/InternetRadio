@@ -39,6 +39,11 @@ void displayShowMessage(const char *line1,
                         const char *line3 = nullptr,
                         const char *line4 = nullptr);
 
+// Full-screen boot splash with the ON8CIT logo + branding + a status line.
+// Use it early in setup() so the user has something to look at while WiFi
+// connects; subsequent WiFi screens render the same branding header.
+void displayShowBootSplash(const char *status = nullptr);
+
 // Boot-time WiFi screens. Read the scan results from net.h (call
 // netScanNow() first) and display them. Footer prints in yellow at the
 // bottom -- typically "Hold [V] for setup".

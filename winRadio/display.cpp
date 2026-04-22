@@ -116,23 +116,82 @@ void rssiBars(int x, int y, int rssi) {
         s_gfx->fillRect(x + b * 4, y + (10 - h), 3, h, c);
     }
 }
+
+// Stylised broadcast/WiFi radiating-waves icon. Drawn via gfx-> directly
+// (so it works on boot-time screens before the sprite is busy).
+void drawLogo(int cx, int cy, int scale) {
+    uint16_t core   = RGB565_YELLOW;
+    uint16_t ring1  = RGB565_ORANGE;
+    uint16_t ring2  = 0xFCE0;   // amber
+    uint16_t ring3  = 0xF7BF;   // faint
+    // Three expanding arcs approximated as full thin rings.
+    s_gfx->drawCircle(cx, cy, scale * 10, ring3);
+    s_gfx->drawCircle(cx, cy, scale * 10 - 1, ring3);
+    s_gfx->drawCircle(cx, cy, scale * 7, ring2);
+    s_gfx->drawCircle(cx, cy, scale * 7 - 1, ring2);
+    s_gfx->drawCircle(cx, cy, scale * 4, ring1);
+    s_gfx->drawCircle(cx, cy, scale * 4 - 1, ring1);
+    s_gfx->fillCircle(cx, cy, scale * 2, core);
+}
+
+// "ON8CIT WebRadio" banner band. Large when used as a splash, compact
+// (single row) otherwise. y is the top of the band.
+void drawBrandingBanner(int y, bool large) {
+    if (large) {
+        drawLogo(120, y + 38, 3);
+        s_gfx->setTextColor(RGB565_YELLOW);
+        s_gfx->setTextSize(4);
+        s_gfx->setCursor(36, y + 86);
+        s_gfx->print("ON8CIT");
+        s_gfx->setTextColor(RGB565_CYAN);
+        s_gfx->setTextSize(2);
+        s_gfx->setCursor(60, y + 124);
+        s_gfx->print("WebRadio");
+    } else {
+        drawLogo(14, y + 10, 1);
+        s_gfx->setTextColor(RGB565_YELLOW);
+        s_gfx->setTextSize(2);
+        s_gfx->setCursor(30, y + 4);
+        s_gfx->print("ON8CIT");
+        s_gfx->setTextColor(RGB565_CYAN);
+        s_gfx->setCursor(138, y + 4);
+        s_gfx->print("WebRadio");
+    }
+}
 } // namespace
+
+void displayShowBootSplash(const char *status) {
+    if (!s_gfx) return;
+    s_gfx->fillScreen(RGB565_BLACK);
+    drawBrandingBanner(0, /*large=*/true);
+    s_gfx->setTextSize(1);
+    s_gfx->setTextColor(RGB565_WHITE);
+    s_gfx->setCursor(2, 180);
+    s_gfx->print("Firmware ");
+    s_gfx->print(FIRMWARE_VERSION);
+    if (status && *status) {
+        s_gfx->setCursor(2, 200);
+        s_gfx->setTextColor(RGB565_CYAN);
+        s_gfx->print(status);
+    }
+}
 
 void displayShowWifiScan(const char *footer, int highlightIdx) {
     if (!s_gfx) return;
     s_gfx->fillScreen(RGB565_BLACK);
+    drawBrandingBanner(0, /*large=*/false);
     s_gfx->setTextSize(1);
     s_gfx->setTextColor(RGB565_CYAN);
-    s_gfx->setCursor(2, 4);
+    s_gfx->setCursor(2, 32);
     s_gfx->print("Visible WiFi networks");
 
     int n = netScanCount();
     if (n == 0) {
         s_gfx->setTextColor(RGB565_WHITE);
-        s_gfx->setCursor(2, 22);
+        s_gfx->setCursor(2, 50);
         s_gfx->print("(no networks found)");
     } else {
-        const int rowH = 14, top = 20, maxRows = (220 - top) / rowH;
+        const int rowH = 14, top = 48, maxRows = (218 - top) / rowH;
         int shown = (n < maxRows) ? n : maxRows;
         for (int i = 0; i < shown; i++) {
             const ScanResult *r = netScanResult(i);
@@ -158,16 +217,17 @@ void displayShowConnecting(const char *ssid, int slot, int total,
                            const char *footer) {
     if (!s_gfx) return;
     s_gfx->fillScreen(RGB565_BLACK);
-    s_gfx->setTextSize(2);
-    s_gfx->setTextColor(RGB565_GREEN);
-    s_gfx->setCursor(2, 20);
-    s_gfx->print("Connecting...");
+    drawBrandingBanner(0, /*large=*/true);
     s_gfx->setTextSize(1);
+    s_gfx->setTextColor(RGB565_GREEN);
+    s_gfx->setCursor(2, 180);
+    s_gfx->print("Connecting to:");
     s_gfx->setTextColor(RGB565_WHITE);
-    s_gfx->setCursor(2, 60);
+    s_gfx->setCursor(2, 194);
     s_gfx->print(ssid ? ssid : "?");
     if (total > 0) {
-        s_gfx->setCursor(2, 80);
+        s_gfx->setTextColor(RGB565_CYAN);
+        s_gfx->setCursor(2, 208);
         s_gfx->printf("(slot %d of %d)", slot, total);
     }
     drawFooter(footer);
@@ -176,28 +236,30 @@ void displayShowConnecting(const char *ssid, int slot, int total,
 void displayShowSetupMode(const char *apSsid, const char *apIp) {
     if (!s_gfx) return;
     s_gfx->fillScreen(RGB565_BLACK);
+    drawBrandingBanner(0, /*large=*/false);
     s_gfx->setTextSize(2);
     s_gfx->setTextColor(RGB565_YELLOW);
-    s_gfx->setCursor(2, 6);
+    s_gfx->setCursor(2, 34);
     s_gfx->println("WiFi Setup");
     s_gfx->setTextSize(1);
     s_gfx->setTextColor(RGB565_WHITE);
-    s_gfx->setCursor(2, 44);
+    s_gfx->setCursor(2, 66);
     s_gfx->println("Option A -- serial CLI:");
-    s_gfx->setCursor(10, 58);
+    s_gfx->setCursor(10, 80);
     s_gfx->setTextColor(RGB565_CYAN);
     s_gfx->println("wifi add");
-    s_gfx->setCursor(2, 82);
+    s_gfx->setCursor(2, 104);
     s_gfx->setTextColor(RGB565_WHITE);
     s_gfx->println("Option B -- AP portal:");
-    s_gfx->setCursor(10, 96);
+    s_gfx->setCursor(10, 118);
     s_gfx->setTextColor(RGB565_CYAN);
-    s_gfx->print("SSID : "); s_gfx->println(apSsid ? apSsid : "?");
-    s_gfx->setCursor(10, 110);
-    s_gfx->print("URL  : http://");
-    s_gfx->println(apIp ? apIp : "?");
+    s_gfx->print("SSID: "); s_gfx->println(apSsid ? apSsid : "?");
+    s_gfx->setCursor(10, 132);
+    s_gfx->print("URL : http://radio.setup");
+    s_gfx->setCursor(10, 146);
+    s_gfx->print("  (or http://"); s_gfx->print(apIp ? apIp : "?"); s_gfx->print(")");
     s_gfx->setTextColor(RGB565_WHITE);
-    s_gfx->setCursor(2, 140);
+    s_gfx->setCursor(2, 170);
     s_gfx->println("Save a network to exit.");
     drawFooter("Reboot to cancel");
 }
@@ -275,26 +337,44 @@ void displayDrawMain() {
     s_sprite.drawRect(0, 0, 239, 239, light);
     s_sprite.fillRect(5, 234, 230, 2, g[13]);
 
-    // labels
-    s_sprite.setTextColor(g[1], bg);
-    s_sprite.drawString(" STATIONS ", 42, 2, 2);
-    s_sprite.drawString("WEB",       160, 2, 2);
+    // ON8CIT WebRadio banner (replaces the split STATIONS / WEB labels).
+    s_sprite.setTextColor(TFT_YELLOW, bg);
+    s_sprite.drawString("ON8CIT", 8, 2, 2);
+    s_sprite.setTextColor(TFT_CYAN, bg);
+    s_sprite.drawString("WebRadio", 70, 2, 2);
 
-    // station list
+    // Now-playing card. Replaces the 8-line station list.
     int chosen = audioCurrentStation();
-    int n = stationsCount();
-    for (int i = 0; i < n; i++) {
-        s_sprite.setTextColor(i == chosen ? TFT_GREEN : TFT_DARKGREEN, TFT_BLACK);
-        String label = stationsName(i);
-        if (label.length() > 20) label = label.substring(0, 20);
-        s_sprite.drawString(label, 10, 26 + (i * 19), 2);
+    int nsta   = stationsCount();
+    const int pX = 4, pY = 20, pW = 150, pH = 172;
+
+    s_sprite.setTextColor(TFT_ORANGE, TFT_BLACK);
+    s_sprite.drawString("NOW PLAYING", pX + 8, pY + 6, 1);
+
+    String stName = audioStationDisplayName(chosen);
+    if (stName.length() > 13) stName = stName.substring(0, 13);
+    s_sprite.setTextColor(TFT_GREEN, TFT_BLACK);
+    s_sprite.drawString(stName, pX + 8, pY + 22, 2);
+
+    char idxBuf[24];
+    snprintf(idxBuf, sizeof(idxBuf), "Station %d of %d", chosen + 1, nsta);
+    s_sprite.setTextColor(g[2], TFT_BLACK);
+    s_sprite.drawString(idxBuf, pX + 8, pY + 48, 1);
+
+    // ICY-reported station name if the stream advertised one.
+    String icy = audioCurStation();
+    if (icy.length()) {
+        if (icy.length() > 20) icy = icy.substring(0, 20);
+        s_sprite.setTextColor(g[4], TFT_BLACK);
+        s_sprite.drawString("ON AIR", pX + 8, pY + 72, 1);
+        s_sprite.setTextColor(TFT_CYAN, TFT_BLACK);
+        s_sprite.drawString(icy, pX + 8, pY + 86, 1);
     }
 
-    // brand
-    s_sprite.setTextColor(g[0], bg);
-    s_sprite.drawString("INTERNET", 160, 86);
-    s_sprite.setTextColor(TFT_RED, bg);
-    s_sprite.drawString("RADIO", 160, 102);
+    // Hint: cycle with button S.
+    s_sprite.setTextColor(g[6], TFT_BLACK);
+    s_sprite.drawString("[S] = next", pX + 8, pY + 152, 1);
+    (void)pH;  // reserved for future layout tweaks
 
     s_sprite.setTextColor(g[6], bg);
     s_sprite.drawString("SONG PLAYING", 6, 200, 1);

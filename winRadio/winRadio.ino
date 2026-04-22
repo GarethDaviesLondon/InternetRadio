@@ -69,7 +69,7 @@ void setup() {
     audioRestoreSession();   // read last volume + station from NVS
 
     displayBegin();
-    displayShowMessage("Scanning WiFi", "...");
+    displayShowBootSplash("Scanning WiFi...");
 
     netBegin();
     netScanNow();
