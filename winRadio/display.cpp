@@ -37,6 +37,15 @@ static int              s_graph[14] = {0};
 static const String     s_btnLabels[3] = {"P","S","V"};
 static bool             s_repaint = false;
 
+// Backlight: full brightness while active, dim after kIdleDimMs of no
+// user input. Actual duty values are at the low end of the PWM range
+// because the Waveshare LCD is bright.
+static constexpr uint8_t  kBacklightActive = 110;
+static constexpr uint8_t  kBacklightDim    = 20;
+static constexpr uint32_t kIdleDimMs       = 60000;   // 60 s
+static uint32_t           s_lastActivityMs = 0;
+static uint8_t            s_backlightLevel = kBacklightActive;
+
 // --- Theme ---------------------------------------------------------------
 
 static void buildDefaultTheme() {
@@ -53,6 +62,27 @@ static void buildDefaultTheme() {
 }
 
 void displaySetTheme(const Theme &t) { g_theme = t; }
+
+void displaySetBacklight(uint8_t level) {
+    s_backlightLevel = level;
+    analogWrite(PIN_LCD_BL, level);
+}
+
+uint8_t displayBacklight() { return s_backlightLevel; }
+
+void displayNoteActivity() {
+    s_lastActivityMs = millis();
+    if (s_backlightLevel != kBacklightActive) {
+        displaySetBacklight(kBacklightActive);
+    }
+}
+
+void displayBacklightTick() {
+    if (s_backlightLevel == kBacklightDim) return;
+    if ((millis() - s_lastActivityMs) > kIdleDimMs) {
+        displaySetBacklight(kBacklightDim);
+    }
+}
 
 // Parse a colour literal:  0x1F2E  (RGB565),
 //                          0xRRGGBB (hex triplet, converted to RGB565),
@@ -124,7 +154,9 @@ void displayBegin() {
                                DISPLAY_W, DISPLAY_H);
     s_gfx->begin();
     s_gfx->fillScreen(RGB565_BLACK);
-    analogWrite(PIN_LCD_BL, 110);
+    analogWrite(PIN_LCD_BL, kBacklightActive);
+    s_backlightLevel  = kBacklightActive;
+    s_lastActivityMs  = millis();
 
     s_sprite.setColorDepth(16);
     // Push the 115 KB sprite into PSRAM so the Audio library can claim

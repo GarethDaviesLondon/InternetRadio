@@ -422,6 +422,7 @@ void cliWaitForNewNetwork() {
 
 void cliPoll() {
     while (Serial.available()) {
+        displayNoteActivity();  // wake the panel on any keystroke
         char c = Serial.read();
         if (c == '\n' && g_lastWasCr) { g_lastWasCr = false; continue; }
         g_lastWasCr = (c == '\r');

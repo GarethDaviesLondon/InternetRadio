@@ -132,8 +132,10 @@ void loop() {
         ESP.restart();
     }
 
-    // Buttons.
-    switch (inputPoll()) {
+    // Buttons. Any user event counts as activity for the backlight dimmer.
+    InputEvent ev = inputPoll();
+    if (ev != INPUT_NONE) displayNoteActivity();
+    switch (ev) {
         case INPUT_NEXT:    audioNextStation(); displayRequestRepaint(); break;
         case INPUT_PREV:    audioPrevStation(); displayRequestRepaint(); break;
         case INPUT_VOL_UP:  audioSetVolume((audioVolume() % 5) + 1);
@@ -150,5 +152,6 @@ void loop() {
     vTaskDelay(1);
     audioLoop();
 
+    displayBacklightTick();
     if (displayRepaintPending()) displayDrawMain();
 }

@@ -4,6 +4,7 @@
 #include "stations.h"
 #include "storage.h"
 #include "net.h"
+#include "display.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -248,6 +249,9 @@ void webBegin() {
 
 void webPoll() {
     if (!s_running) return;
+    // Record activity whenever a client is connected -- approximates
+    // "someone is looking at the web UI", enough to wake the panel.
+    if (s_http.client()) displayNoteActivity();
     s_http.handleClient();
 
     // mDNS heartbeat. WiFi.status() check avoids touching MDNS while the

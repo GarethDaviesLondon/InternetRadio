@@ -24,6 +24,14 @@ extern Theme g_theme;
 void displayBegin();        // panel up, sprites allocated, font loaded, palette built
 void displaySetTheme(const Theme &t);
 
+// Backlight control. Levels are the raw 0..255 PWM duty; the helpers below
+// wrap an idle-timeout dim behaviour (full brightness when active, dim
+// after N ms of no user input, off on request).
+void     displaySetBacklight(uint8_t level);
+uint8_t  displayBacklight();
+void     displayNoteActivity();          // called by input / web / CLI
+void     displayBacklightTick();         // call ~once per loop; applies dim
+
 // Read an ini-style file from SD (key=value per line; '#' and ';' start
 // comments; values either as 0xRRGGBB, 0xXXXX RGB565, or "R,G,B" triples).
 // Silently no-ops if SD isn't mounted or the file isn't present.
