@@ -6,11 +6,14 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
+#include <ESPmDNS.h>
 
 namespace {
 WebServer s_http(80);
 DNSServer s_dns;
-bool      s_active = false;
+bool      s_active  = false;
+bool      s_mdnsUp  = false;
+constexpr const char *kApMdnsHost = "on8cit-setup";  // on8cit-setup.local
 
 String htmlEscape(const String &s) {
     String out; out.reserve(s.length() + 8);
@@ -135,6 +138,16 @@ void provisionStart() {
     s_dns.setErrorReplyCode(DNSReplyCode::NoError);
     s_dns.start(53, "*", ip);
 
+    // mDNS announcement on the AP so iOS / macOS / Windows devices can
+    // open http://on8cit-setup.local directly. The wildcard DNS above
+    // already makes any hostname resolve to the AP, so this is mainly a
+    // nicer URL to tell the user.
+    if (MDNS.begin(kApMdnsHost)) {
+        MDNS.addService("http", "tcp", 80);
+        s_mdnsUp = true;
+        Serial.printf("provision: mDNS up at http://%s.local\r\n", kApMdnsHost);
+    }
+
     s_http.on("/",        HTTP_GET,  handleIndex);
     s_http.on("/save",    HTTP_POST, handleSave);
     s_http.on("/rescan",  HTTP_GET,  handleRescan);
@@ -163,6 +176,7 @@ void provisionStop() {
     if (!s_active) return;
     s_http.stop();
     s_dns.stop();
+    if (s_mdnsUp) { MDNS.end(); s_mdnsUp = false; }
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
     s_active = false;

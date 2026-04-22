@@ -182,12 +182,16 @@ static void cmdWifiList() {
     outln();
     int n = wifiNetworkCount();
     if (n == 0) { outln(F("No saved networks.")); return; }
+    int joined = netLastJoinedSlot();
     for (int i = 0; i < n; i++) {
-        Serial.print(F("  ")); Serial.print(i + 1); Serial.print(F(". "));
+        Serial.print(i == joined ? F(" *") : F("  "));
+        Serial.print(F(" ")); Serial.print(i + 1); Serial.print(F(". "));
         Serial.print(wifiNetworkSsid(i));
         size_t plen = strlen(wifiNetworkPass(i));
-        if (plen > 0) { Serial.print(F("  (pass: ")); Serial.print(plen); outln(F(" chars)")); }
-        else          { outln(F("  (open)")); }
+        if (plen > 0) { Serial.print(F("  (pass: ")); Serial.print(plen); Serial.print(F(" chars)")); }
+        else          { Serial.print(F("  (open)")); }
+        if (i == joined) Serial.print(F("   [joined]"));
+        outln();
     }
     outln();
 }

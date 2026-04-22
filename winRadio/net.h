@@ -18,6 +18,11 @@ String netLocalIp();
 int   netRssi();
 const char *netHostname();
 
+// The saved-network slot that successfully connected during the last
+// netConnect() call (or the latest reconnect). -1 if no connection yet.
+// Cleared when netConnect() returns false / when we reconnect.
+int   netLastJoinedSlot();
+
 // ---- Scan ---------------------------------------------------------------
 struct ScanResult {
     String  ssid;

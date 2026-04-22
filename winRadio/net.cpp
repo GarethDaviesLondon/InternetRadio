@@ -9,6 +9,7 @@
 namespace {
 const char *s_hostname = DEFAULT_HOSTNAME;
 std::vector<ScanResult> s_scan;
+int  s_lastJoinedSlot = -1;
 
 // Insert or update the SSID entry keeping the strongest RSSI.
 void upsertScan(const String &ssid, int32_t rssi, uint8_t enc) {
@@ -46,6 +47,7 @@ void netBegin() {
 
 bool netConnect(bool (*abortCb)(),
                 void (*progressCb)(int, int, const char *)) {
+    s_lastJoinedSlot = -1;
     int n = wifiNetworkCount();
     if (n == 0) return false;
     for (int i = 0; i < n; i++) {
@@ -55,8 +57,9 @@ bool netConnect(bool (*abortCb)(),
         if (progressCb) progressCb(i + 1, n, ssid);
         Serial.printf("net: trying slot %d/%d ssid=%s\r\n", i + 1, n, ssid);
         if (tryJoin(ssid, pass, 8000, abortCb)) {
-            Serial.printf("net: connected to %s, ip=%s\r\n",
-                          ssid, WiFi.localIP().toString().c_str());
+            s_lastJoinedSlot = i;
+            Serial.printf("net: connected to %s (slot %d), ip=%s\r\n",
+                          ssid, i, WiFi.localIP().toString().c_str());
             return true;
         }
     }
@@ -68,6 +71,8 @@ void netReconnect() {
     delay(100);
     netConnect();
 }
+
+int netLastJoinedSlot() { return s_lastJoinedSlot; }
 
 bool   netConnected() { return WiFi.status() == WL_CONNECTED; }
 String netLocalIp()   { return WiFi.localIP().toString(); }

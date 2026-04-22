@@ -255,9 +255,11 @@ void displayShowSetupMode(const char *apSsid, const char *apIp) {
     s_gfx->setTextColor(RGB565_CYAN);
     s_gfx->print("SSID: "); s_gfx->println(apSsid ? apSsid : "?");
     s_gfx->setCursor(10, 132);
-    s_gfx->print("URL : http://radio.setup");
+    s_gfx->print("URL : http://on8cit-setup.local");
     s_gfx->setCursor(10, 146);
-    s_gfx->print("  (or http://"); s_gfx->print(apIp ? apIp : "?"); s_gfx->print(")");
+    s_gfx->print("  or http://radio.setup");
+    s_gfx->setCursor(10, 160);
+    s_gfx->print("  or http://"); s_gfx->print(apIp ? apIp : "?");
     s_gfx->setTextColor(RGB565_WHITE);
     s_gfx->setCursor(2, 170);
     s_gfx->println("Save a network to exit.");

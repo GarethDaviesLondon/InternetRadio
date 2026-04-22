@@ -14,6 +14,12 @@ namespace {
 WebServer s_http(80);
 bool      s_running = false;
 bool      s_mdnsUp  = false;
+uint32_t  s_mdnsLastCheckMs = 0;
+// ESPmDNS occasionally stops responding after a router reboot or a lease
+// expiry. Re-call MDNS.begin() every 30 s while STA is up. MDNS.begin() is
+// idempotent (it tears down the previous service record), so calling it
+// unconditionally is cheap.
+constexpr uint32_t kMdnsHeartbeatMs = 30000;
 
 String htmlEscape(const String &s) {
     String out; out.reserve(s.length() + 8);
@@ -243,6 +249,22 @@ void webBegin() {
 void webPoll() {
     if (!s_running) return;
     s_http.handleClient();
+
+    // mDNS heartbeat. WiFi.status() check avoids touching MDNS while the
+    // STA interface is disconnected (which would leave the service record
+    // orphaned and confuse the next begin()).
+    if (WiFi.status() == WL_CONNECTED &&
+        (millis() - s_mdnsLastCheckMs) > kMdnsHeartbeatMs) {
+        s_mdnsLastCheckMs = millis();
+        MDNS.end();
+        if (MDNS.begin(netHostname())) {
+            MDNS.addService("http", "tcp", 80);
+            MDNS.addServiceTxt("http", "tcp", "version", FIRMWARE_VERSION);
+            MDNS.addServiceTxt("http", "tcp", "name",    FIRMWARE_NAME);
+            s_mdnsUp = true;
+        }
+    }
+
     if (s_rebootPending && (int32_t)(millis() - s_rebootAtMs) >= 0) {
         s_http.stop();
         if (s_mdnsUp) MDNS.end();
