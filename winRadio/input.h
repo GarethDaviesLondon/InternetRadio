@@ -26,6 +26,12 @@ bool       inputLeftHeld();
 bool       inputMidHeld();
 bool       inputRightHeld();
 
+// True if LEFT + RIGHT have been held together continuously for at least
+// `holdMs` milliseconds. Call from loop(); state is tracked internally.
+// Intended for an on-device soft-reboot combo (the radio has an internal
+// battery, so a USB power-cycle isn't always available).
+bool       inputRebootCombo(uint32_t holdMs = 3000);
+
 // Touch screen stub. The Waveshare LCD-1.3 in the Volos build is buttons
 // only, but newer Waveshare radios ship the same MCU with an XPT2046 (or
 // GT911 capacitive) touch overlay. Bring the driver up here.

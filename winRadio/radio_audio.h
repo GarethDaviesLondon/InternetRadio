@@ -10,13 +10,18 @@
 
 // ---- Lifecycle -----------------------------------------------------------
 // Order matters: audioCodecInit -> audioPlayMorseR (optional self-test)
-// -> audioBegin -> audioStartDefault. The morse test must run *before*
-// audioBegin claims I2S 0.
+// -> audioRestoreSession -> audioBegin -> audioStartLast. The morse test
+// must run *before* audioBegin claims I2S 0.
 bool audioCodecInit();
 void audioPlayMorseR();           // dot-dash-dot 700 Hz; safe to skip
+void audioRestoreSession();       // read last volume + station from NVS
 bool audioBegin();                // claims I2S, registers event callback
-bool audioStartDefault();         // connects to station 0
+bool audioStartLast();            // connect to the remembered station
 void audioLoop();                 // call every loop() iteration
+
+// Friendly display name for a station slot: last URL path segment, with
+// common audio suffixes / bit-rates stripped. Safe for LCD and web use.
+const char *audioStationDisplayName(int idx);
 
 // ---- Playback control ----------------------------------------------------
 int  audioCurrentStation();       // 0-based index into stations module

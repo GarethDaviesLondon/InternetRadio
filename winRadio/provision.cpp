@@ -74,6 +74,11 @@ String renderIndex() {
 
 void handleIndex() { s_http.send(200, "text/html", renderIndex()); }
 
+// Rebooting from inside handleSave would preempt the HTTP response. Latch a
+// flag instead and let provisionPoll() restart once the response has flushed.
+bool s_rebootPending = false;
+uint32_t s_rebootAtMs = 0;
+
 void handleSave() {
     String ssid = s_http.arg("ssid"); ssid.trim();
     String pass = s_http.arg("pass");
@@ -83,14 +88,21 @@ void handleSave() {
             "Save failed (list full? remove one first)."); return;
     }
     String ok;
-    ok += F("<!doctype html><html><body style='font-family:sans-serif;max-width:520px;margin:1em auto;padding:0 1em'>");
+    ok += F("<!doctype html><html><head><meta charset=utf-8>"
+           "<meta http-equiv='refresh' content='8'>"
+           "<title>ON8CIT WebRadio &mdash; saved</title>"
+           "<style>body{font-family:sans-serif;max-width:520px;margin:1em auto;padding:0 1em}"
+           "h1{color:#18c}</style></head><body>");
+    ok += F("<h1>ON8CIT WebRadio</h1>");
     ok += F("<h2>Saved.</h2><p>Added <code>");
     ok += htmlEscape(ssid);
     ok += F("</code> to the saved-networks list.</p>");
-    ok += F("<p>The radio will now try to join it. You can close this tab.</p>");
-    ok += F("</body></html>");
+    ok += F("<p><strong>The radio will reboot in a moment</strong> and join the new network. "
+           "You can close this tab.</p></body></html>");
     s_http.send(200, "text/html", ok);
-    Serial.printf("provision: saved '%s'\r\n", ssid.c_str());
+    Serial.printf("provision: saved '%s', rebooting in 2 s\r\n", ssid.c_str());
+    s_rebootPending = true;
+    s_rebootAtMs = millis() + 2000;
 }
 
 // AP-mode rescan. ESP32-S3 in AP mode can't scan on its own RF chain; switch
@@ -138,6 +150,13 @@ void provisionPoll() {
     if (!s_active) return;
     s_dns.processNextRequest();
     s_http.handleClient();
+    if (s_rebootPending && (int32_t)(millis() - s_rebootAtMs) >= 0) {
+        s_http.stop();
+        s_dns.stop();
+        WiFi.softAPdisconnect(true);
+        delay(100);
+        ESP.restart();
+    }
 }
 
 void provisionStop() {

@@ -1,6 +1,7 @@
 #include "radio_audio.h"
 #include "config.h"
 #include "stations.h"
+#include "storage.h"
 
 #include <Arduino.h>
 #include <Audio.h>
@@ -23,6 +24,13 @@ static String   s_song;
 static long     s_bitrate = 0;
 static unsigned s_infoCount = 0;
 static bool     s_log = false;
+static String   s_displayName;        // scratch for audioStationDisplayName
+
+// Session persistence (NVS namespace "radio"): vol, sta.
+static void persistSession() {
+    storagePutInt("radio", "vol", s_volume);
+    storagePutInt("radio", "sta", s_chosen);
+}
 
 // --------------------------------------------------------------------------
 // Diagnostic toggle.
@@ -188,10 +196,26 @@ bool audioBegin() {
     return ok;
 }
 
-bool audioStartDefault() {
+bool audioStartLast() {
     bool ok = s_audio.connecttohost(stationsUrl(s_chosen));
-    Serial.printf("audio.connecttohost -> %s\r\n", ok ? "ok" : "FAIL");
+    Serial.printf("audio.connecttohost(slot %d) -> %s\r\n", s_chosen, ok ? "ok" : "FAIL");
     return ok;
+}
+
+void audioRestoreSession() {
+    int v = storageGetInt("radio", "vol", 2);
+    int s = storageGetInt("radio", "sta", 0);
+    if (v < 1) v = 1; if (v > 5) v = 5;
+    int n = stationsCount();
+    if (n > 0) {
+        if (s < 0)  s = 0;
+        if (s >= n) s = n - 1;
+    } else {
+        s = 0;
+    }
+    s_volume = v;
+    s_chosen = s;
+    Serial.printf("audio: restored session -- volume=%d station=%d\r\n", s_volume, s_chosen);
 }
 
 void audioLoop() { s_audio.loop(); }
@@ -210,6 +234,7 @@ bool audioSelectStation(int idx) {
     s_chosen = idx;
     bool ok = s_audio.connecttohost(stationsUrl(s_chosen));
     Serial.printf("connecttohost('%s') -> %s\r\n", stationsUrl(s_chosen), ok ? "ok" : "FAIL");
+    persistSession();
     return ok;
 }
 
@@ -220,8 +245,10 @@ int  audioVolume() { return s_volume; }
 void audioSetVolume(int v) {
     if (v < 1) v = 1;
     if (v > 5) v = 5;
+    if (v == s_volume) return;
     s_volume = v;
     s_audio.setVolume(s_volume * 4);
+    persistSession();
 }
 
 // --------------------------------------------------------------------------
@@ -233,3 +260,72 @@ const char *audioSongPlaying()   { return s_song.c_str(); }
 long        audioBitrate()       { return s_bitrate; }
 bool        audioIsRunning()     { return s_audio.isRunning(); }
 unsigned    audioInfoEventCount(){ return s_infoCount; }
+
+// Derive a tidy display name from the URL:
+//   http://ice1.somafm.com/groovesalad-128-mp3  -> "groovesalad"
+//   http://stream.radioparadise.com/mp3-128     -> "radioparadise"
+//   http://sc6.radiocaroline.net:8040/stream    -> "stream"
+// If the tail is useless ("stream", ";", "") fall back to the host.
+// Result is truncated to fit the LCD.
+const char *audioStationDisplayName(int idx) {
+    String url = stationsUrl(idx);
+    if (url.length() == 0) { s_displayName = ""; return s_displayName.c_str(); }
+
+    int slashSlash = url.indexOf("://");
+    int pathStart  = slashSlash >= 0 ? url.indexOf('/', slashSlash + 3) : 0;
+
+    String host = (slashSlash >= 0 && pathStart > 0)
+        ? url.substring(slashSlash + 3, pathStart)
+        : url;
+    int colon = host.indexOf(':');
+    if (colon >= 0) host = host.substring(0, colon);
+    // Strip a leading www. and take the second-level segment (radiocaroline
+    // from sc6.radiocaroline.net) as a friendlier host name.
+    if (host.startsWith("www.")) host = host.substring(4);
+    int lastDot = host.lastIndexOf('.');
+    int prevDot = (lastDot > 0) ? host.lastIndexOf('.', lastDot - 1) : -1;
+    String hostShort = (prevDot >= 0) ? host.substring(prevDot + 1, lastDot) : host;
+
+    String tail = (pathStart > 0) ? url.substring(pathStart + 1) : String();
+    // Trim trailing slashes / semicolons.
+    while (tail.length() &&
+           (tail.endsWith("/") || tail.endsWith(";") || tail.endsWith("?"))) {
+        tail.remove(tail.length() - 1);
+    }
+    // Drop leading path segments if the tail is nested (e.g. radioking).
+    int lastSlash = tail.lastIndexOf('/');
+    if (lastSlash >= 0) tail = tail.substring(lastSlash + 1);
+    // Strip common suffixes / bitrate markers.
+    for (const char *suf : { ".mp3", ".aac", ".ogg" }) {
+        if (tail.endsWith(suf)) tail.remove(tail.length() - strlen(suf));
+    }
+    // If the tail contains "-128" / "-96" / "-64" / "_128" bitrate markers
+    // drop them and everything after.
+    for (int i = 0; i < (int)tail.length() - 2; i++) {
+        char c0 = tail[i], c1 = tail[i + 1], c2 = tail[i + 2];
+        if ((c0 == '-' || c0 == '_') && isDigit(c1) && isDigit(c2)) {
+            tail = tail.substring(0, i);
+            break;
+        }
+    }
+    tail.trim();
+
+    bool tailUseful = tail.length() > 0
+                      && !tail.equalsIgnoreCase("stream")
+                      && !tail.equalsIgnoreCase("listen")
+                      && !tail.equalsIgnoreCase("autodj")
+                      && !tail.equalsIgnoreCase("radio");
+    // If the tail is purely digits, treat it as useless (e.g. radioking id).
+    if (tailUseful) {
+        bool allDigits = true;
+        for (size_t i = 0; i < tail.length(); i++) {
+            if (!isDigit(tail[i])) { allDigits = false; break; }
+        }
+        if (allDigits) tailUseful = false;
+    }
+
+    String out = tailUseful ? tail : hostShort;
+    if (out.length() > 20) out = out.substring(0, 20);
+    s_displayName = out;
+    return s_displayName.c_str();
+}

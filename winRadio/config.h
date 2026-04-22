@@ -44,10 +44,10 @@
 #define BAT_V_MAX     4.2f
 
 // ---- Net / discovery -------------------------------------------------------
-#define DEFAULT_HOSTNAME   "waveradio"     // mDNS: waveradio.local
-#define PROVISION_AP_SSID  "WaveRadio-Setup"
-#define PROVISION_AP_PASS  ""              // empty = open AP
+#define DEFAULT_HOSTNAME   "on8cit-radio"            // mDNS: on8cit-radio.local
+#define PROVISION_AP_SSID  "ON8CIT-WinRadio-Setup"
+#define PROVISION_AP_PASS  ""                        // empty = open AP
 
 // ---- Version ---------------------------------------------------------------
-#define FIRMWARE_NAME    "Waveshare Internet Radio"
-#define FIRMWARE_VERSION "0.2.0"
+#define FIRMWARE_NAME    "ON8CIT WebRadio"
+#define FIRMWARE_VERSION "0.3.0"

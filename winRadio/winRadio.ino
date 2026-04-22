@@ -66,6 +66,7 @@ void setup() {
 
     audioCodecInit();
     audioPlayMorseR();   // dot-dash-dot self-test before Audio lib grabs I2S 0
+    audioRestoreSession();   // read last volume + station from NVS
 
     displayBegin();
     displayShowMessage("Scanning WiFi", "...");
@@ -92,9 +93,9 @@ void setup() {
     }
 
     audioBegin();
-    audioStartDefault();
+    audioStartLast();    // resumes the remembered station
 
-    webBegin();          // no-op until implemented
+    webBegin();          // no-op until web CLI lands
 
     displayRequestRepaint();
 }
@@ -114,6 +115,14 @@ void loop() {
     if (millis() - lastSlide > 30) {
         lastSlide = millis();
         displayDrawScroll();
+    }
+
+    // Soft-reboot combo: Left + Right held for 3 s. Needed because the
+    // radio has an internal battery, so a power-cycle isn't instant.
+    if (inputRebootCombo(3000)) {
+        displayShowMessage("Rebooting...");
+        delay(500);
+        ESP.restart();
     }
 
     // Buttons.
