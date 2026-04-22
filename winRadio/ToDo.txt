@@ -1,3 +1,28 @@
+
+21-4-2026
+
+Updates:
+
+1. AP- based addition of Wifi works, but it does not reboot the radio on provide a reboot button.
+2. Create a reboot possibility from the physical buttons. Long press (3 seconds) buttons 1 and 3 together 
+    - needed because the unit has an internal battery, so power-cycle won't work.
+3. Store the volume setting so on reboot it comes back to same volume and station as last time.
+4. Rename the AP for setup to be "ON8CIT-WinRadio-Setup"
+5. Once booted set up a Webesite with a Web based version of the CLI, enabling station selection, volume etc. 
+    We will extend this later, but for now let's get this up an running. Suggest better ways that we can find the 
+    webserver on the local net without using the IP number assigned. 
+6. On the OLED screen let's make some changes please replace the station list with just the current station name
+    Eventually (not now) we will pick up station information SD storage, for now use the last part of the URL as
+    the name and display the station name. 
+7. Display ON8CIT WebRadio as a banner on all the web pages and on the main OLED. Have a boot splash screen as it is connecting
+    to WIFI that shows the ON8CIT in bigger font with a cool logo too.
+8. make sure that we keep the code in appropriate factors for this part of the work.
+8.  Update this to-do list with the changes that you have made to the code, and your suggestions for further work.
+
+
+
+
+Completed belwo here, ignore
 21-4-2026
 
 Wifi Connection Logic implementation.
