@@ -1,7 +1,7 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
-Changes to do 22-4-2026
 
-1. PLease reduce the volume of the boot R to volume level 2.
+
+== Open / next up ==============================================================
 
 A. Log / last-connected network
    - Add a "last joined" mark in wifi list so it's easy to see which saved
@@ -50,6 +50,18 @@ J. Stereo / mono toggle + EQ
 
 
 == Changes made in the latest round =============================================
+
+(22-4-2026 follow-up.)
+
+  0. Boot Morse "R" quieter.
+     - Sample amplitude in audioPlayMorseR() scaled to the equivalent of
+       user volume level 2 (was level-5-ish full-scale).
+     - NB: the boot chirp runs before the Audio library starts, so it
+       uses a compile-time constant rather than audioVolume(). If you
+       want the chirp to match whichever volume you last set, reorder
+       setup() so audioRestoreSession() runs before audioPlayMorseR()
+       and drop the constant in favour of audioVolume().
+
 
 (22-4-2026, responding to the first "Updates" block below.)
 

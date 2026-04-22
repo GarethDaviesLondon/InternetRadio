@@ -112,6 +112,13 @@ bool audioCodecInit() {
 // --------------------------------------------------------------------------
 
 static void morseWriteFrames(i2s_chan_handle_t h, uint32_t frames, bool toneOn) {
+    // Keep the boot chirp quiet: the codec hasn't seen audioSetVolume yet so
+    // anything we send plays at the codec's fixed 75/255 digital gain, which
+    // is alarming at full scale. Scale the sample amplitude to "user volume
+    // level 2" (2/5 of the 12000 full-amp reference).
+    constexpr int     kMorseLevel = 2;                    // 1..5
+    constexpr int16_t kMorseAmp   = (12000 * kMorseLevel) / 5;
+
     const float dphi = 2.0f * (float)M_PI * 700.0f / (float)AUDIO_SAMPLE_RATE;
     static float phase = 0.0f;
     int16_t buf[256];
@@ -120,7 +127,7 @@ static void morseWriteFrames(i2s_chan_handle_t h, uint32_t frames, bool toneOn) 
         for (uint32_t i = 0; i < n; i++) {
             int16_t s = 0;
             if (toneOn) {
-                s = (int16_t)(sinf(phase) * 12000.0f);
+                s = (int16_t)(sinf(phase) * (float)kMorseAmp);
                 phase += dphi;
                 if (phase > 2.0f * (float)M_PI) phase -= 2.0f * (float)M_PI;
             }
