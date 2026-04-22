@@ -1,46 +1,131 @@
+ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
+
+
+== Open / next up ==============================================================
+
+Ideas / suggestions that would build naturally on the current work:
+
+A. Log / last-connected network
+   - Add a "last joined" mark in wifi list so it's easy to see which saved
+     slot the radio is currently on; useful when you have several home/work
+     networks stored.
+
+B. mDNS health
+   - ESPmDNS occasionally stops responding after a router reboot. Add a
+     30 s heartbeat that re-calls MDNS.begin() if the service query stops
+     resolving. (Low-effort; 10 lines in web.cpp.)
+
+C. Theme JSON
+   - Feed the `Theme` struct in display.cpp from a JSON file on SD so the
+     device is skinnable without a recompile. Needs SD mount first.
+
+D. Touch screen driver
+   - input.h already declares the INPUT_TOUCH_TAP event. Pick the chip
+     (XPT2046 vs GT911 depending on the board variant) and produce events.
+
+E. Stations on SD + station editor
+   - Replace the hardcoded preset list (stations.cpp) with a JSON file on
+     SD. The web UI gets a dedicated /stations page for add / remove / edit
+     / reorder -- same UX pattern as the wifi list in the CLI today.
+
+F. Recording
+   - storage.h stubs call it out. Write the raw stream chunks plus an
+     index sidecar so seeking works. Needs SD.
+
+G. Power-aware display dimming
+   - Ramp down backlight after N minutes of idle; wake on any button or
+     web request. Simple analogWrite(PIN_LCD_BL, ...) in power.cpp.
+
+H. mDNS during AP provisioning
+   - Already pointed the DNSServer to answer everything with the AP's IP
+     (so http://radio.setup works), but adding mDNS here too would let
+     macOS / iOS find http://on8cit-setup.local out of the box.
+
+I. Volume with steps > 5
+   - The on-screen bar and the button step both assume 1..5. The Audio
+     library accepts 0..21; 5 steps is very coarse. Either map buttons to
+     "big step" and the web UI to "fine" (1..21), or add a `vol +/- 2`
+     mode.
+
+J. Stereo / mono toggle + EQ
+   - ESP32-audioI2S has bass / mid / treble setters. A little EQ panel in
+     the web UI would be a very cheap UX win.
+
+
+== Changes made in the latest round =============================================
+
+(22-4-2026, responding to the first "Updates" block below.)
+
+  1. Auto-reboot after AP-based save.
+     - POST /save responds with "radio will reboot in a moment", then
+       provisionPoll() latches a 2 s timer and ESP.restart()s. No user
+       action required.
+
+  2. Physical reboot combo.
+     - Holding Left + Right simultaneously for 3 s triggers ESP.restart()
+       from the main loop (input.cpp: inputRebootCombo).
+     - The normal "left-press = deep sleep" event is suppressed while the
+       right button is also pressed so the combo can win the race.
+
+  3. Volume + station persisted across reboots.
+     - Stored in the NVS "radio" namespace (keys "vol", "sta") on every
+       audioSetVolume / audioSelectStation call.
+     - audioRestoreSession() reads them at boot; audioStartLast() resumes
+       the remembered slot instead of always starting at 0.
+
+  4. AP renamed.
+     - PROVISION_AP_SSID is now "ON8CIT-WinRadio-Setup".
+
+  5. Web-based CLI.
+     - After STA connect the sketch brings up a WebServer on port 80 and
+       announces itself via mDNS as on8cit-radio.local. The home page
+       shows a Now Playing card, Vol +/-, Prev/Next, a station grid that
+       highlights the current slot, and a Reboot button.
+     - REST-ish API for automation: GET /api/state (JSON snapshot), POST
+       /api/station n=N, POST /api/next, /api/prev, /api/volume (v=N or
+       d=+/-1), /api/reboot.
+     - How to find the server on the LAN without typing the IP:
+         - Primary: http://on8cit-radio.local (mDNS; works on macOS, iOS,
+           Windows 10+, most modern Linux).
+         - Secondary fallbacks (not yet implemented): periodic UDP
+           broadcast with a JSON blob; SSDP announcement. Add later if
+           mDNS proves unreliable on your router.
+
+  6. OLED rework.
+     - Main screen's 8-line station list replaced by a Now Playing card:
+       big station name (derived from the URL via audioStationDisplayName
+       -- e.g. groovesalad, radioparadise, radiocaroline), slot index
+       "Station N of M", and the ICY-reported station name when the
+       stream sends one.
+
+  7. ON8CIT WebRadio banner.
+     - New displayShowBootSplash() with a broadcast-waves logo +
+       wordmark, shown while WiFi is scanning / connecting.
+     - Every other setup screen (scan list, connecting, setup portal)
+       wears a compact version of the same banner.
+     - Main UI top bar now reads "ON8CIT WebRadio".
+     - Every page served by the provisioning portal and the LAN web UI
+       has the same ON8CIT WebRadio header band.
+
+  8. Factoring stayed clean.
+     - All changes landed inside the existing modules (config.h,
+       storage.cpp, radio_audio.cpp, display.cpp, input.cpp, net.cpp,
+       provision.cpp, web.cpp). The .ino orchestrator remained ~100
+       lines. No new modules were needed this round.
+
+
+== Completed in earlier rounds (kept for history) =============================
 
 21-4-2026
-
-Updates:
-
-1. AP- based addition of Wifi works, but it does not reboot the radio on provide a reboot button.
-2. Create a reboot possibility from the physical buttons. Long press (3 seconds) buttons 1 and 3 together 
-    - needed because the unit has an internal battery, so power-cycle won't work.
-3. Store the volume setting so on reboot it comes back to same volume and station as last time.
-4. Rename the AP for setup to be "ON8CIT-WinRadio-Setup"
-5. Once booted set up a Webesite with a Web based version of the CLI, enabling station selection, volume etc. 
-    We will extend this later, but for now let's get this up an running. Suggest better ways that we can find the 
-    webserver on the local net without using the IP number assigned. 
-6. On the OLED screen let's make some changes please replace the station list with just the current station name
-    Eventually (not now) we will pick up station information SD storage, for now use the last part of the URL as
-    the name and display the station name. 
-7. Display ON8CIT WebRadio as a banner on all the web pages and on the main OLED. Have a boot splash screen as it is connecting
-    to WIFI that shows the ON8CIT in bigger font with a cool logo too.
-8. make sure that we keep the code in appropriate factors for this part of the work.
-8.  Update this to-do list with the changes that you have made to the code, and your suggestions for further work.
-
-
-
-
-Completed belwo here, ignore
-21-4-2026
-
 Wifi Connection Logic implementation.
-
-This update is for simplifying the user experience around setting up a wifi connection. Requirements below:
-
-1. Store multiple SSID/PWD combinations these should be accessed one by one until a connection is made, the order
-should be possible to re-order at a later date - bear this in mind with the design.
-
-2. On startup show the SSIDs that are available (by wifi scan) and their relative SSID. Limit to the size of the
-screen.
-
-3. If, before connection is made, button 3 is pressed then enter Wifi Setup mode to add another SSID to the list.
-Show on the screen that we are entering Wifi Set up mode, also prompt the user to press button 3 to enter that mode.
-
-4. Wifi Setup happens in 1 of two ways. 
-    A. AS currently using the CLI - modify the CLI to allow the user to select an SSID from the list of available (or specify their own).
-    B. Create a wifi access point that we can connect to (call it WS-InternetRadio) and where we can provide
-    SSID credentials. The list of encoutnered SSIDs should be shown on the webpage with the ability to select (or specify own)
-    C. The wifi access point should only be active during the credential gathering phase, othewise inactive.
-
+Requirements:
+ 1. Store multiple SSID/PWD combinations, tried one by one until a
+    connection is made, re-orderable later.
+ 2. On startup show the SSIDs that are available (by WiFi scan) and their
+    relative signal strength. Limit to the screen size.
+ 3. If, before a connection is made, button 3 is pressed then enter WiFi
+    Setup mode to add another SSID.
+ 4. WiFi Setup happens in one of two ways:
+    A. CLI -- select from the scanned list or type an SSID.
+    B. AP "WS-InternetRadio" hosting a setup webpage.
+    C. AP only active during credential gathering.
