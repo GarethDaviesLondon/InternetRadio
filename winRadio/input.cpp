@@ -66,10 +66,12 @@ bool inputRebootCombo(uint32_t holdMs) {
 // ---- Touch (stub) --------------------------------------------------------
 // Real implementation lives in touch.cpp behind USE_TOUCH_XPT2046. The
 // Waveshare ESP32-S3-LCD-1.3 in the Volos video has no touch overlay, so
-// the stub here does nothing and keeps INPUT_TOUCH_TAP unemitted.
+// these stubs do nothing and keep INPUT_TOUCH_TAP unemitted.
+#ifndef USE_TOUCH_XPT2046
 void inputBeginTouch() {}
 bool inputTouchPressed(int *x, int *y) {
     if (x) *x = -1;
     if (y) *y = -1;
     return false;
 }
+#endif
