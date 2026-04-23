@@ -1,61 +1,25 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-1. The wifi now finds no nodes, But I get this on the serial port:
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
-boot: L=0 M=0 R=0
+== Changes made in this round (24-4-2026, part 2) ===============================
 
-Please fix.
+  1. Empty-scan regression fixed.
+     - The previous round added a manual esp_wifi_set_config() tweak
+       to flip pmf_cfg.capable on the STA. arduino-esp32 v3.x already
+       sets PMF capable by default; the manual fiddle was redundant
+       and left the STA in a state where scanNetworks() returned 0
+       on some boots. Removed it -- country "01" and scan
+       parameters stay.
+     - netScanNow() now logs "net: scan found N network(s)" so a
+       no-results boot is visible without guessing.
+
+  2. "boot: L=0 M=0 R=0" flood fixed.
+     - The button diagnostic was firing every 2 s, which meant a
+       steady stream of lines whenever the device sat on the setup
+       screen. Reworked to edge-triggered: idle is silent, each
+       button press emits one line, each release emits one more.
+       Same debug value, zero noise at rest.
+
+
 
 == Changes made in this round (24-4-2026) =======================================
 
