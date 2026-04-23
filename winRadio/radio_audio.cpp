@@ -153,19 +153,16 @@ static void morseWriteFrames(i2s_chan_handle_t h, uint32_t frames, bool toneOn) 
 }
 
 void audioPlayMorseR() {
-    Serial.printf("morse: DMA-capable heap free = %u bytes\r\n",
-        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
+    // Legacy wrapper: plays "de ON8CIT" instead of the original "R".
+    audioPlayCwString("de ON8CIT");
+}
 
+static void morseOpenChannel(i2s_chan_handle_t *txOut) {
     i2s_chan_handle_t tx = nullptr;
     i2s_chan_config_t cc = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     cc.dma_desc_num  = 2;
     cc.dma_frame_num = 128;
-
-    if (i2s_new_channel(&cc, &tx, nullptr) != ESP_OK) {
-        Serial.println("morse: i2s_new_channel FAILED");
-        return;
-    }
-
+    if (i2s_new_channel(&cc, &tx, nullptr) != ESP_OK) { Serial.println("cw: i2s_new_channel FAILED"); *txOut = nullptr; return; }
     i2s_std_config_t sc = {};
     sc.clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(AUDIO_SAMPLE_RATE);
     sc.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
@@ -175,32 +172,72 @@ void audioPlayMorseR() {
     sc.gpio_cfg.ws   = (gpio_num_t)PIN_I2S_LRC;
     sc.gpio_cfg.dout = (gpio_num_t)PIN_I2S_DOUT;
     sc.gpio_cfg.din  = I2S_GPIO_UNUSED;
+    if (i2s_channel_init_std_mode(tx, &sc) != ESP_OK) { Serial.println("cw: init_std_mode FAILED"); i2s_del_channel(tx); *txOut = nullptr; return; }
+    if (i2s_channel_enable(tx) != ESP_OK) { Serial.println("cw: channel_enable FAILED"); i2s_del_channel(tx); *txOut = nullptr; return; }
+    *txOut = tx;
+}
 
-    if (i2s_channel_init_std_mode(tx, &sc) != ESP_OK) {
-        Serial.println("morse: init_std_mode FAILED");
-        i2s_del_channel(tx); return;
+// Morse code table (A-Z + 0-9). Undef letters / punctuation emit a word gap.
+static const char *cwLookup(char c) {
+    if (c >= 'a' && c <= 'z') c = c - 'a' + 'A';
+    switch (c) {
+        case 'A': return ".-";     case 'B': return "-...";   case 'C': return "-.-.";
+        case 'D': return "-..";    case 'E': return ".";      case 'F': return "..-.";
+        case 'G': return "--.";    case 'H': return "....";   case 'I': return "..";
+        case 'J': return ".---";   case 'K': return "-.-";    case 'L': return ".-..";
+        case 'M': return "--";     case 'N': return "-.";     case 'O': return "---";
+        case 'P': return ".--.";   case 'Q': return "--.-";   case 'R': return ".-.";
+        case 'S': return "...";    case 'T': return "-";      case 'U': return "..-";
+        case 'V': return "...-";   case 'W': return ".--";    case 'X': return "-..-";
+        case 'Y': return "-.--";   case 'Z': return "--..";
+        case '0': return "-----";  case '1': return ".----";  case '2': return "..---";
+        case '3': return "...--";  case '4': return "....-";  case '5': return ".....";
+        case '6': return "-....";  case '7': return "--...";  case '8': return "---..";
+        case '9': return "----.";
+        default: return "";
     }
-    if (i2s_channel_enable(tx) != ESP_OK) {
-        Serial.println("morse: channel_enable FAILED");
-        i2s_del_channel(tx); return;
-    }
+}
 
-    // R = dot dash dot. Target ~30 WPM: PARIS standard is 50 units per
-    // word, so 30 WPM -> 1500 units/min -> 1 unit = 40 ms. Lead with 200 ms
-    // of silence so the codec/PA finish their unmute ramp before the first
-    // dot (otherwise it sounds like "N").
-    const uint32_t U = 40, FR_PER_MS = AUDIO_SAMPLE_RATE / 1000;
-    morseWriteFrames(tx, 200     * FR_PER_MS, false);
-    morseWriteFrames(tx, U       * FR_PER_MS, true);
-    morseWriteFrames(tx, U       * FR_PER_MS, false);
-    morseWriteFrames(tx, (U * 3) * FR_PER_MS, true);
-    morseWriteFrames(tx, U       * FR_PER_MS, false);
-    morseWriteFrames(tx, U       * FR_PER_MS, true);
-    morseWriteFrames(tx, 120     * FR_PER_MS, false);  // short tail, still avoids clip
+// Play an ASCII string as CW at ~30 WPM. Spaces = word gap; unknown
+// chars are treated as word gaps. 200 ms silence is led in at the start
+// so the codec / PA finish unmuting before the first element.
+void audioPlayCwString(const char *text) {
+    if (!text || !*text) return;
+    Serial.printf("cw: DMA-capable heap free = %u bytes\r\n",
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
+    i2s_chan_handle_t tx = nullptr;
+    morseOpenChannel(&tx);
+    if (!tx) return;
+
+    constexpr uint32_t UNIT_MS = 40;                              // 30 WPM
+    constexpr uint32_t FR_PER_MS = AUDIO_SAMPLE_RATE / 1000;
+    const auto unit = [tx](uint32_t units, bool on) {
+        morseWriteFrames(tx, units * UNIT_MS * FR_PER_MS, on);
+    };
+
+    unit(5, false);    // 200 ms lead-in silence so codec finishes unmute
+    bool firstLetter = true;
+    for (const char *p = text; *p; p++) {
+        if (*p == ' ' || *p == '\t') {
+            unit(7, false);    // word gap (relative to the previous inter-letter gap)
+            firstLetter = true;
+            continue;
+        }
+        const char *pat = cwLookup(*p);
+        if (!*pat) { unit(7, false); firstLetter = true; continue; }
+        if (!firstLetter) unit(3, false);   // inter-letter gap
+        firstLetter = false;
+        // Play dots and dashes with a 1-unit intra-letter gap after each.
+        for (const char *e = pat; *e; e++) {
+            unit(*e == '-' ? 3 : 1, true);
+            if (e[1]) unit(1, false);
+        }
+    }
+    unit(3, false);   // trailing tail
 
     i2s_channel_disable(tx);
     i2s_del_channel(tx);
-    Serial.println("morse: done");
+    Serial.println("cw: done");
 }
 
 // --------------------------------------------------------------------------

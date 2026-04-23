@@ -13,7 +13,8 @@
 // -> audioRestoreSession -> audioBegin -> audioStartLast. The morse test
 // must run *before* audioBegin claims I2S 0.
 bool audioCodecInit();
-void audioPlayMorseR();           // dot-dash-dot 700 Hz; safe to skip
+void audioPlayMorseR();           // legacy name; plays the boot chirp
+void audioPlayCwString(const char *text);   // CW any uppercase string at 30 WPM
 void audioRestoreSession();       // read last volume + station from NVS
 bool audioBegin();                // claims I2S, registers event callback
 bool audioStartLast();            // connect to the remembered station

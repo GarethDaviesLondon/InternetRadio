@@ -185,11 +185,23 @@ bool netConnect(bool (*abortCb)(),
     s_lastJoinedSlot = -1;
     int n = wifiNetworkCount();
     if (n == 0) return false;
-    for (int i = 0; i < n; i++) {
+
+    // Build the attempt order: last-known-good slot first (if still valid),
+    // then the remaining slots in their saved order. We keep the persistent
+    // slot list unchanged -- only the *try* order is re-ranked.
+    int lastGood = storageGetInt("radio", "lastwifi", -1);
+    if (lastGood >= n) lastGood = -1;
+    int order[kWifiMaxNetworks];
+    int m = 0;
+    if (lastGood >= 0) order[m++] = lastGood;
+    for (int i = 0; i < n; i++) if (i != lastGood) order[m++] = i;
+
+    for (int a = 0; a < m; a++) {
+        int i = order[a];
         if (abortCb && abortCb()) return false;
         const char *ssid = wifiNetworkSsid(i);
         const char *pass = wifiNetworkPass(i);
-        if (progressCb) progressCb(i + 1, n, ssid);
+        if (progressCb) progressCb(a + 1, m, ssid);
         // Cross-reference the saved SSID against the latest scan so we can
         // see at a glance whether the AP was even visible at scan time.
         const ScanResult *sr = findInScan(ssid);
@@ -203,6 +215,7 @@ bool netConnect(bool (*abortCb)(),
         }
         if (tryJoin(ssid, pass, 8000, abortCb)) {
             s_lastJoinedSlot = i;
+            storagePutInt("radio", "lastwifi", i);  // remember across reboots
             Serial.printf("net: connected to %s (slot %d), ip=%s\r\n",
                           ssid, i, WiFi.localIP().toString().c_str());
             return true;

@@ -21,3 +21,10 @@ void cliWaitForNewNetwork(void (*tickCb)() = nullptr);
 // through to netConnect() (which will just fail again if no creds exist;
 // that's the expected UX for "let me back out").
 void cliCancelSetup();
+
+// Ctrl-C (ASCII 0x03) in the serial CLI sets this flag. Long-running
+// commands (reconnect, scan-hard, wifi connect, AP loops) poll it via
+// cliCheckInterrupt() and bail if set. cliClearInterrupt() is called at
+// the top of every dispatch so stale Ctrl-Cs don't leak across commands.
+bool cliCheckInterrupt();
+void cliClearInterrupt();

@@ -20,8 +20,11 @@ static const char *PROMPT = "radio> ";
 static String g_buf;
 static bool   g_lastWasCr = false;
 static bool   g_cancelSetup = false;
+static volatile bool g_ctrlC = false;
 
-void cliCancelSetup() { g_cancelSetup = true; }
+void cliCancelSetup()     { g_cancelSetup = true; }
+bool cliCheckInterrupt()  { return g_ctrlC; }
+void cliClearInterrupt()  { g_ctrlC = false; }
 
 // ---- output helpers (CRLF always) ---------------------------------------
 
@@ -206,13 +209,18 @@ static void printScanList(int n) {
 }
 
 static void cmdWifiScan(bool hard = false) {
-    outln(hard ? F("Hard scanning (3 passes)...") : F("Scanning..."));
+    outln(hard ? F("Hard scanning (3 passes, Ctrl-C to abort)...") : F("Scanning..."));
     int n = netScanNow();
     if (hard) {
         // Phone hotspots often beacon slowly. A second and third pass,
         // plus a small sleep between, catches APs that missed the first.
-        delay(500);  (void)netScanNow();
-        delay(500);  n = netScanNow();
+        for (int pass = 1; pass < 3; pass++) {
+            for (int slept = 0; slept < 500; slept += 20) {
+                cliPoll(); if (cliCheckInterrupt()) { outln(F("Aborted.")); return; }
+                delay(20);
+            }
+            n = netScanNow();
+        }
     }
     if (n == 0) {
         outln(F("No networks found."));
@@ -358,10 +366,20 @@ static void cmdWifiClear() {
     }
 }
 
+// Pump the serial CLI while waiting on a long net operation, so Ctrl-C
+// is delivered and latched into cliCheckInterrupt().
+static bool cliAbortCb() {
+    cliPoll();
+    return cliCheckInterrupt();
+}
+
 static void cmdReconnect() {
     if (wifiNetworkCount() == 0) { outln(F("No saved networks. Run 'wifi add' first.")); return; }
-    outln(F("Reconnecting..."));
-    netReconnect();
+    outln(F("Reconnecting... (Ctrl-C to abort)"));
+    WiFi.disconnect(true);
+    delay(100);
+    netConnect(cliAbortCb, nullptr);
+    if (cliCheckInterrupt()) { outln(F("Aborted.")); return; }
     outln(netConnected() ? "OK." : "No saved network connected.");
 }
 
@@ -412,6 +430,7 @@ static void cmdSd(const String &arg) {
 static void dispatch(const String &raw) {
     String line = raw; line.trim();
     if (line.length() == 0) return;
+    cliClearInterrupt();   // each new command starts with a clean ^C state
 
     String cmd, arg;
     int sp = line.indexOf(' ');
@@ -506,6 +525,13 @@ void cliPoll() {
     while (Serial.available()) {
         displayNoteActivity();  // wake the panel on any keystroke
         char c = Serial.read();
+        if (c == 3) {                   // Ctrl-C: latch interrupt flag
+            g_ctrlC = true;
+            Serial.print("^C\r\n");
+            g_buf = "";
+            prompt();
+            continue;
+        }
         if (c == '\n' && g_lastWasCr) { g_lastWasCr = false; continue; }
         g_lastWasCr = (c == '\r');
         if (c == '\r' || c == '\n') {
