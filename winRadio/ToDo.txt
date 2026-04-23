@@ -1,5 +1,17 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
+1. CLI commands should be case insesitive. Operands (data) should be case sensitive.
+2. I don't see the wifi hotspot from my phone (Pixel 8 from Google running latest android) is 
+  this a frequency issue? I see other Wifi nodes around me. Would like to connect to my
+  phone please.
+3. Sleep doesn't work at the moment, before wifi connection. Is that because it's not connected?
+   In any case I need to be able to "turn it off" even when it hasn't connected.
+4. Dimming of the screen should also work before connecting to the wifi, for same reasons.
+
+5. Unable to test many of the other features as I cannot connect at the moment (due to phone hotspot issue)
+
+Please update and document changes in code and in this file.
+
 
 == Changes made in the latest round (22/23-4-2026) ==============================
 
