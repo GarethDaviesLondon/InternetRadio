@@ -12,8 +12,9 @@
 
 #include <Arduino.h>
 
-void provisionStart();
-void provisionPoll();       // drive DNS + web server; call from the wait loop
+void provisionStart();            // AP-only (tears down STA) -- classic setup-mode entry
+void provisionStartBackground();  // AP + STA -- portal runs alongside the STA connect
+void provisionPoll();             // drive DNS + web server; call from any wait loop
 void provisionStop();
 bool provisionActive();
-String provisionApIp();     // "" if AP not running
+String provisionApIp();           // "" if AP not running

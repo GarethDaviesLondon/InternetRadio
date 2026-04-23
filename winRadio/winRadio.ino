@@ -28,6 +28,7 @@
 static void bootTick() {
     displayBacklightTick();
     cliPoll();
+    provisionPoll();   // services the background AP portal if it's running
     if (inputRebootCombo(3000)) {
         displayShowMessage("Rebooting...");
         delay(500);
@@ -135,19 +136,27 @@ void setup() {
         runWifiSetup();
     }
 
-    // Try all saved networks in order. If every attempt fails or the user
-    // aborts with the right button, fall over into setup mode and retry.
+    // Background AP: while we try each saved network, the provisioning
+    // portal is reachable too, so the user can jump straight to setup
+    // without waiting out every 8 s connect timeout. Save via the portal
+    // auto-reboots, so there's no reconcile logic here -- the reboot
+    // naturally resumes with the newly-saved network in the list.
+    provisionStartBackground();
     while (!netConnect(netAbortOnRightButton, netProgressUi)) {
         displayShowMessage("No network", "connected.",
                            "Entering setup...");
         delay(800);
+        // Setup mode uses AP-only (tears down the idle STA) for focus.
+        provisionStop();
         runWifiSetup();
+        provisionStartBackground();   // background AP up again for next loop
     }
+    provisionStop();   // associated: AP no longer needed
 
     audioBegin();
     audioStartLast();    // resumes the remembered station
 
-    webBegin();          // no-op until web CLI lands
+    webBegin();          // main-mode web UI (uses the STA interface)
 
     displayRequestRepaint();
 }

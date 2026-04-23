@@ -31,25 +31,30 @@ String htmlEscape(const String &s) {
     return out;
 }
 
+extern const char *on8citPageCss();
+extern const char *on8citLogoSvg();
+
 String renderIndex() {
-    String p; p.reserve(2560);
+    String p; p.reserve(3000);
     p += F("<!doctype html><html><head><meta charset=utf-8>"
            "<meta name=viewport content='width=device-width,initial-scale=1'>"
-           "<title>Waveshare Internet Radio &mdash; Setup</title>"
-           "<style>body{font-family:sans-serif;max-width:520px;margin:1em auto;padding:0 1em;color:#222}"
-           "h1{font-size:1.15em}"
-           ".net{padding:.4em .25em;border-bottom:1px solid #ddd;cursor:pointer}"
-           ".net:hover{background:#eef}"
-           ".rssi{color:#888;font-size:.85em;float:right}"
-           "input,button{width:100%;box-sizing:border-box;padding:.55em;font-size:1em;margin:.25em 0}"
-           "button{background:#18c;color:#fff;border:0;padding:.8em;border-radius:4px}"
-           "label{display:block;margin-top:.5em}</style></head><body>");
-    p += F("<h1>Waveshare Internet Radio &mdash; WiFi setup</h1>"
-           "<p>Tap a network (or type one) and enter the password.</p>"
+           "<title>ON8CIT WebRadio &mdash; Setup</title>"
+           "<style>");
+    p += on8citPageCss();
+    p += F("</style></head><body>"
+           "<header>");
+    p += on8citLogoSvg();
+    p += F("<h1><span class=yel>ON8CIT</span> <span class=cya>WebRadio</span></h1>"
+           "</header>");
+    p += F("<div class=card><h2>WiFi setup</h2>"
+           "<p style='margin:.2em 0 .7em;color:#cdd3de'>"
+           "Pick a network below (or type one) and enter the password. "
+           "The radio will reboot and join on save.</p>"
            "<div id=nets>");
     int n = netScanCount();
     if (n == 0) {
-        p += F("<p><em>No networks found &mdash; <a href=/rescan>rescan</a>.</em></p>");
+        p += F("<p style='color:#8aa'><em>No networks found &mdash; "
+               "<a href=/rescan>rescan</a>.</em></p>");
     } else {
         for (int i = 0; i < n; i++) {
             const ScanResult *r = netScanResult(i);
@@ -57,11 +62,13 @@ String renderIndex() {
             p += F("<div class=net onclick=\"document.getElementById('ssid').value="
                    "this.getAttribute('data-ssid')\" data-ssid=\"");
             p += htmlEscape(r->ssid);
-            p += F("\">");
-            p += htmlEscape(r->ssid);
-            p += F("<span class=rssi>");
+            p += F("\"><span class=rssi>ch");
+            p += r->channel;
+            p += F(" &middot; ");
             p += r->rssi;
-            p += F(" dBm</span></div>");
+            p += F(" dBm</span>");
+            p += htmlEscape(r->ssid);
+            p += F("</div>");
         }
     }
     p += F("</div>"
@@ -70,7 +77,8 @@ String renderIndex() {
            "<label>Password <input name=pass type=password></label>"
            "<button type=submit>Save &amp; reconnect</button>"
            "</form>"
-           "<p><a href=/rescan>Rescan networks</a></p>"
+           "<p style='margin-top:.8em'><a href=/rescan>Rescan networks</a></p>"
+           "</div>"
            "</body></html>");
     return p;
 }
@@ -94,14 +102,17 @@ void handleSave() {
     ok += F("<!doctype html><html><head><meta charset=utf-8>"
            "<meta http-equiv='refresh' content='8'>"
            "<title>ON8CIT WebRadio &mdash; saved</title>"
-           "<style>body{font-family:sans-serif;max-width:520px;margin:1em auto;padding:0 1em}"
-           "h1{color:#18c}</style></head><body>");
-    ok += F("<h1>ON8CIT WebRadio</h1>");
-    ok += F("<h2>Saved.</h2><p>Added <code>");
+           "<style>");
+    ok += on8citPageCss();
+    ok += F("</style></head><body><header>");
+    ok += on8citLogoSvg();
+    ok += F("<h1><span class=yel>ON8CIT</span> <span class=cya>WebRadio</span></h1></header>"
+           "<div class=card><h2>Saved</h2>"
+           "<p>Added <code>");
     ok += htmlEscape(ssid);
-    ok += F("</code> to the saved-networks list.</p>");
-    ok += F("<p><strong>The radio will reboot in a moment</strong> and join the new network. "
-           "You can close this tab.</p></body></html>");
+    ok += F("</code> to the saved-networks list.</p>"
+           "<p><strong>The radio will reboot in a moment</strong> and join the new "
+           "network. You can close this tab.</p></div></body></html>");
     s_http.send(200, "text/html", ok);
     Serial.printf("provision: saved '%s', rebooting in 2 s\r\n", ssid.c_str());
     s_rebootPending = true;
@@ -127,10 +138,16 @@ void handleCaptive() {
 }
 } // namespace
 
-void provisionStart() {
+static void provisionStartInternal(bool keepSta) {
     if (s_active) return;
-    WiFi.disconnect(false, true);
-    WiFi.mode(WIFI_AP);
+    // keepSta=false: classic setup-mode path. We were called because the
+    //   user explicitly wants to reconfigure and there's no point keeping
+    //   the STA around. We tear it down so the RF can focus on the AP.
+    // keepSta=true : background mode. Runs alongside a live or imminent
+    //   STA association attempt, so the portal is reachable *while* the
+    //   radio is still trying saved networks. Requires WIFI_AP_STA.
+    if (!keepSta) WiFi.disconnect(false, true);
+    WiFi.mode(keepSta ? WIFI_AP_STA : WIFI_AP);
     const char *pass = strlen(PROVISION_AP_PASS) ? PROVISION_AP_PASS : nullptr;
     WiFi.softAP(PROVISION_AP_SSID, pass);
     IPAddress ip = WiFi.softAPIP();
@@ -155,9 +172,12 @@ void provisionStart() {
     s_http.begin();
 
     s_active = true;
-    Serial.printf("provision: AP '%s' up at http://%s\r\n",
-                  PROVISION_AP_SSID, ip.toString().c_str());
+    Serial.printf("provision: AP '%s' up at http://%s (keepSta=%d)\r\n",
+                  PROVISION_AP_SSID, ip.toString().c_str(), keepSta ? 1 : 0);
 }
+
+void provisionStart()           { provisionStartInternal(/*keepSta=*/false); }
+void provisionStartBackground() { provisionStartInternal(/*keepSta=*/true);  }
 
 void provisionPoll() {
     if (!s_active) return;

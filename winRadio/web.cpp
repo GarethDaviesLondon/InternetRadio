@@ -38,41 +38,28 @@ String htmlEscape(const String &s) {
     return out;
 }
 
+// Shared CSS + SVG logo used by every page served by the radio (main UI
+// here, plus the AP provisioning portal in provision.cpp via
+// on8citPageHead()). Matches the OLED palette: deep black background,
+// yellow/cyan wordmark, orange accent, cyan interactive highlights.
+extern const char *on8citPageCss();
+extern const char *on8citLogoSvg();
+
 // Shared page chrome + banner so every route keeps the ON8CIT branding.
 String pageHead(const char *title) {
     String p;
-    p.reserve(1200);
+    p.reserve(2600);
     p += F("<!doctype html><html><head><meta charset=utf-8>"
            "<meta name=viewport content='width=device-width,initial-scale=1'>"
            "<title>");
     p += title;
-    p += F("</title><style>"
-           "body{font-family:-apple-system,sans-serif;max-width:640px;margin:0 auto;padding:0 1em;color:#222;background:#f7f7f9}"
-           "header{background:#111;color:#fff;margin:0 -1em 1em;padding:.9em 1em;display:flex;align-items:center;gap:.6em}"
-           "header .dot{width:14px;height:14px;border-radius:50%;background:#fb0;box-shadow:0 0 0 4px #f803,0 0 0 10px #f801}"
-           "header h1{margin:0;font-size:1.1em;font-weight:600;letter-spacing:.04em}"
-           "header h1 span{color:#5cf}"
-           ".card{background:#fff;border:1px solid #ddd;border-radius:6px;padding:.8em 1em;margin:.6em 0}"
-           ".card h2{margin:0 0 .4em;font-size:1em;color:#555}"
-           ".kv{display:grid;grid-template-columns:8em 1fr;gap:.2em 1em;font-family:monospace;font-size:.9em}"
-           ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.4em}"
-           ".stationRow{display:flex;gap:.3em;align-items:stretch}"
-           ".stationPick{flex:1}"
-           ".station{padding:.55em .7em;border:1px solid #ccc;border-radius:5px;background:#fff;cursor:pointer;text-decoration:none;color:#222;display:block;width:100%;text-align:left;font:inherit}"
-           ".station.cur{border-color:#18c;background:#e6f2fb}"
-           ".station small{display:block;color:#888;margin-top:.2em;word-break:break-all}"
-           ".infoBtn{background:transparent;color:#18c;border:1px solid #ccc;border-radius:5px;padding:.3em .6em;cursor:pointer;font-size:1.1em;width:auto}"
-           ".infoBtn:hover{background:#eef}"
-           "#modalBg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35)}"
-           "#modalBg.show,#modal.show{display:block}"
-           "#modal{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;padding:1em 1.2em;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,.2);max-width:94%;width:480px;z-index:10}"
-           "#modal h2{margin:.2em 0 .6em}"
-           "button,.btn{background:#18c;color:#fff;border:0;padding:.55em 1em;border-radius:4px;cursor:pointer;font-size:1em}"
-           "button.warn{background:#b33}"
-           ".row{display:flex;gap:.4em;align-items:center;flex-wrap:wrap}"
-           "footer{color:#888;text-align:center;margin:1em 0;font-size:.85em}"
-           "</style></head><body>"
-           "<header><div class=dot></div><h1>ON8CIT <span>WebRadio</span></h1></header>");
+    p += F("</title><style>");
+    p += on8citPageCss();
+    p += F("</style></head><body>"
+           "<header>");
+    p += on8citLogoSvg();
+    p += F("<h1><span class=yel>ON8CIT</span> <span class=cya>WebRadio</span></h1>"
+           "</header>");
     return p;
 }
 
