@@ -1,5 +1,37 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
+1. On boot while looking to connect to Wifi Networks, please start the AP in the background 
+    so we can interrupt without waiting.
+
+2. Add graphics and a bit of style to the AP and Web site. Use the same logos, fonts and colours
+  as the OLED display.
+
+3. On a long cycle CLI (such as reconnect) please make Ctrl-C interrupt the operation.
+
+4. On the web interface control, give the radio stations an info icon that when pressed opens
+   a modal dialog that enables a friendly name to be set, stored and used. If no friendly name
+   has been set, continue to use the URL derived name. The audio stream seems to carry an 
+   identifier of the station, if it has not been set please set the friendly name to this ident.
+
+4a. Make the radio stations editable - store new URLs and Friendly Names as requested (change to
+   those that are default). Don't expand the number of stations but overwrite the chosen entry.
+   If NVRAM is insufficient reduce the number of stations stored.
+
+5. When attempting to connect to wifi AP, start with the last one that was working before exploring
+   the rest of the list.
+
+6. For CLI post boot messaging, make Verbose an option to prevent on-going stream of messages. Make
+  reporting by level [BOOT], [INFO], [DEBUG], [ERROR] and indicate which type of message is being relayed.
+
+7. Prepare code stubs to accomodate info, debug, error logging to rotating logs (so they don't 
+    outgrow storage) on the SD card, for later debugging.
+
+8. Change the boot signal to CW "de ON8CIT" at about 30WPM.
+
+9. See if you can find a URL for "Best Smooth Jazz" or "BSJ" with Rod Lucas, if so add it the list of
+  stations saved.
+
+
 == Changes made in this round (24-4-2026, part 2) ===============================
 
   1. Empty-scan regression fixed.
