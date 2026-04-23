@@ -8,6 +8,12 @@
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 
+// Shared branding (branding.cpp) -- must be declared at file scope, not
+// inside the anonymous namespace below, or the linker will look for
+// internal-linkage symbols and fail.
+const char *on8citPageCss();
+const char *on8citLogoSvg();
+
 namespace {
 WebServer s_http(80);
 DNSServer s_dns;
@@ -30,9 +36,6 @@ String htmlEscape(const String &s) {
     }
     return out;
 }
-
-extern const char *on8citPageCss();
-extern const char *on8citLogoSvg();
 
 String renderIndex() {
     String p; p.reserve(3000);

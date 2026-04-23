@@ -11,6 +11,14 @@
 #include <WebServer.h>
 #include <ESPmDNS.h>
 
+// Shared ON8CIT visual identity (defined in branding.cpp). Declared at
+// global (non-anonymous) scope so the linker binds to the external
+// symbols; putting them inside the anonymous namespace below would make
+// them internal-linkage-only and the link would fail with "used but
+// never defined".
+const char *on8citPageCss();
+const char *on8citLogoSvg();
+
 namespace {
 WebServer s_http(80);
 bool      s_running = false;
@@ -37,13 +45,6 @@ String htmlEscape(const String &s) {
     }
     return out;
 }
-
-// Shared CSS + SVG logo used by every page served by the radio (main UI
-// here, plus the AP provisioning portal in provision.cpp via
-// on8citPageHead()). Matches the OLED palette: deep black background,
-// yellow/cyan wordmark, orange accent, cyan interactive highlights.
-extern const char *on8citPageCss();
-extern const char *on8citLogoSvg();
 
 // Shared page chrome + banner so every route keeps the ON8CIT branding.
 String pageHead(const char *title) {
