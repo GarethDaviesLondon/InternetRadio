@@ -1,35 +1,101 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-1. On boot while looking to connect to Wifi Networks, please start the AP in the background 
-    so we can interrupt without waiting.
+== Changes made in this round (25-4-2026) =======================================
 
-2. Add graphics and a bit of style to the AP and Web site. Use the same logos, fonts and colours
-  as the OLED display.
+  1. Background AP during boot.
+     - provisionStartBackground() puts WiFi into AP+STA mode so the
+       captive portal is reachable alongside the saved-network connect
+       attempts. You can jump to setup via
+       http://on8cit-setup.local / http://radio.setup / 192.168.4.1
+       immediately after boot, without waiting out the per-slot 8 s
+       connect timeouts.
+     - If every saved network fails the AP flips to AP-only setup
+       mode, and back to background once setup is done.
+     - bootTick() calls provisionPoll() too, so the portal is served
+       during every blocking wait.
 
-3. On a long cycle CLI (such as reconnect) please make Ctrl-C interrupt the operation.
+  2. ON8CIT styling on every web page.
+     - New branding.cpp owns the shared CSS and the broadcast-waves
+       SVG logo as exported strings. web.cpp (main UI) and
+       provision.cpp (setup portal + /save confirmation) both use it,
+       so the two paths cannot drift visually.
+     - Palette mirrors the OLED: #0b0d11 deep-black background,
+       #FFD400 yellow + #5ae3ff cyan wordmark, orange accent on card
+       titles, dark-glass cards, cyan interactive highlights.
+     - AP scan rows now include chN + RSSI in a right-aligned label,
+       consistent with the LCD.
 
-4. On the web interface control, give the radio stations an info icon that when pressed opens
-   a modal dialog that enables a friendly name to be set, stored and used. If no friendly name
-   has been set, continue to use the URL derived name. The audio stream seems to carry an 
-   identifier of the station, if it has not been set please set the friendly name to this ident.
+  3. Ctrl-C interrupts long CLI operations.
+     - ASCII 0x03 in cliPoll() is caught, echoed as ^C, and latches a
+       flag (cliCheckInterrupt()) that `reconnect`, `wifi scan-hard`
+       and `wifi connect` poll. Flag is cleared at the top of every
+       dispatch so stale ^Cs don't leak across commands.
 
-4a. Make the radio stations editable - store new URLs and Friendly Names as requested (change to
-   those that are default). Don't expand the number of stations but overwrite the chosen entry.
-   If NVRAM is insufficient reduce the number of stations stored.
+  4/4a. Editable station slots.
+     - Three-layer precedence: NVS override > SD /stations.csv >
+       compiled preset. stationsSetSlot / stationsResetSlot persist
+       per-slot friendly-name and URL overrides in the "stations" NVS
+       namespace.
+     - NVS-exhaustion fallback: on a failed putString, the highest-
+       indexed *other* override is dropped and the write retried, so
+       the slot being edited always wins. Implements "reduce stations
+       stored" on NVS pressure.
+     - audioStationDisplayName is three-layer too: override > ICY
+       station name (if currently playing) > URL-derived short name.
+     - Web UI: info button (circled i) on every station row opens a
+       themed modal with name + URL fields. Save / Reset / Cancel.
+       POST /api/station-edit.
+     - CLI: `station edit <n>` interactive prompt; `station reset <n>`.
 
-5. When attempting to connect to wifi AP, start with the last one that was working before exploring
-   the rest of the list.
+  5. Last-working saved network tried first.
+     - netConnect() stores the slot index that successfully joined in
+       NVS key "radio/lastwifi" on every success.
+     - Subsequent netConnect()s build their attempt order with that
+       slot promoted to position 0; the rest follow in saved order,
+       skipping the duplicate. The persistent list's order is
+       unchanged -- only the *try* order is re-ranked.
 
-6. For CLI post boot messaging, make Verbose an option to prevent on-going stream of messages. Make
-  reporting by level [BOOT], [INFO], [DEBUG], [ERROR] and indicate which type of message is being relayed.
+  6. Leveled logging with verbose toggle.
+     - New log.h / log.cpp exposes LOG_BOOT / LOG_INFO / LOG_DEBUG /
+       LOG_ERROR. Every line gets a "[LEVEL] " prefix so downstream
+       tools can grep or colourise.
+     - logSetVerbose() / logVerbose() gate LOG_DEBUG emission (off by
+       default). CLI: `log verbose on | off`.
+     - Existing busy modules aren't migrated to LOG*() yet -- the
+       facade is available for new code and can be adopted
+       incrementally.
 
-7. Prepare code stubs to accomodate info, debug, error logging to rotating logs (so they don't 
-    outgrow storage) on the SD card, for later debugging.
+  7. SD log rotation stubs.
+     - logSdBegin(path, maxBytes, keep) arms a mirror to a file on SD.
+       When the file passes maxBytes: log.txt -> log.txt.0 -> .1 ...
+       oldest dropped at `keep`.
+     - CLI: `log sd on | off | status`. Default off; real writes
+       start once storageSdMount() has succeeded and the user opts in.
 
-8. Change the boot signal to CW "de ON8CIT" at about 30WPM.
+  8. Boot chirp is now CW "de ON8CIT" at 30 WPM.
+     - audioPlayCwString(text) plays any ASCII string via a compiled-
+       in A-Z + 0-9 table at the 40 ms dot-unit timing (30 WPM PARIS).
+       Spaces are 7-unit word gaps.
+     - audioPlayMorseR() is retained as a wrapper that calls
+       audioPlayCwString("de ON8CIT") so the existing setup() call
+       still works.
 
-9. See if you can find a URL for "Best Smooth Jazz" or "BSJ" with Rod Lucas, if so add it the list of
-  stations saved.
+  9. BSJ stream URL -- deferred, documented.
+     - Every direct-stream lookup for Best Smooth Jazz (bsj.fm,
+       bestsmoothjazz.com, tuneyou, zeno.fm) returned 403 to WebFetch
+       -- the stations gate the audio endpoint behind JavaScript /
+       bot detection. Station is hosted on Zeno.fm as
+       stream.zeno.fm/<hash>, but the hash is only in the live page's
+       DOM.
+     - Recipe for the user: open
+       https://zeno.fm/radio/bsj-fm-best-smooth-jazz/ in a browser,
+       open DevTools -> Network, click Play, copy the
+       stream.zeno.fm/... URL. Paste into any slot via the new web
+       info button or CLI `station edit <n>`. No firmware change
+       needed.
+
+
+== Changes made in this round (24-4-2026, part 2) ===============================
 
 
 == Changes made in this round (24-4-2026, part 2) ===============================
