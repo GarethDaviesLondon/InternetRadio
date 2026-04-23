@@ -19,9 +19,32 @@
 
 // --- WiFi connect UX ------------------------------------------------------
 
-// Abort callback passed to netConnect(): if the user presses the right
-// button mid-attempt we break out and enter setup mode.
-static bool netAbortOnRightButton() { return inputRightHeld(); }
+// bootTick: runs once per iteration of every blocking wait in setup().
+// Handles the things the user expects to always work, even before we've
+// joined a network: backlight dim, L+R reboot combo, clean Left-press
+// deep sleep. Called from every setup()-phase busy loop so the radio is
+// not "bricked awake" while trying to associate.
+static void bootTick() {
+    displayBacklightTick();
+    if (inputRebootCombo(3000)) {
+        displayShowMessage("Rebooting...");
+        delay(500);
+        ESP.restart();
+    }
+    InputEvent ev = inputPoll();
+    if (ev != INPUT_NONE) displayNoteActivity();
+    if (ev == INPUT_SLEEP) powerDeepSleep();   // doesn't return
+    // NEXT / VOL events are ignored during boot: audio isn't running yet
+    // and the station list is rendered in a different screen.
+}
+
+// Abort callback passed to netConnect(): the right button (V) triggers
+// WiFi-setup mode mid-attempt. bootTick is called here too so sleep /
+// reboot / dim keep working while we're trying each saved network.
+static bool netAbortOnRightButton() {
+    bootTick();
+    return inputRightHeld();
+}
 
 // Progress callback: repaint "Connecting to X (slot N of M)" on the LCD.
 static void netProgressUi(int slot, int total, const char *ssid) {
@@ -33,6 +56,7 @@ static void netProgressUi(int slot, int total, const char *ssid) {
 static bool waitOrSetupButton(uint32_t durationMs) {
     uint32_t t0 = millis();
     while (millis() - t0 < durationMs) {
+        bootTick();
         if (inputRightHeld()) return true;
         delay(20);
     }
@@ -47,7 +71,7 @@ static void runWifiSetup() {
     String apIp = provisionApIp();
     displayShowSetupMode(PROVISION_AP_SSID,
                          apIp.length() ? apIp.c_str() : "192.168.4.1");
-    cliWaitForNewNetwork();   // polls cli + provisionPoll; exits when a network is saved
+    cliWaitForNewNetwork(bootTick);  // keeps sleep / reboot / dim alive
     provisionStop();
 }
 

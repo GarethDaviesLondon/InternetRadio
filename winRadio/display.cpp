@@ -284,6 +284,18 @@ void displayShowWifiScan(const char *footer, int highlightIdx) {
         s_gfx->setTextColor(RGB565_WHITE);
         s_gfx->setCursor(2, 50);
         s_gfx->print("(no networks found)");
+        s_gfx->setTextColor(RGB565_YELLOW);
+        s_gfx->setCursor(2, 74);
+        s_gfx->print("Phone hotspot tips:");
+        s_gfx->setTextColor(RGB565_WHITE);
+        s_gfx->setCursor(2, 90);
+        s_gfx->print("- band: 2.4 GHz (not 5)");
+        s_gfx->setCursor(2, 104);
+        s_gfx->print("- security: WPA2 or WPA2/3");
+        s_gfx->setCursor(2, 118);
+        s_gfx->print("  (not WPA3-only)");
+        s_gfx->setCursor(2, 132);
+        s_gfx->print("- 'Extend compat' if offered");
     } else {
         const int rowH = 14, top = 48, maxRows = (218 - top) / rowH;
         int shown = (n < maxRows) ? n : maxRows;

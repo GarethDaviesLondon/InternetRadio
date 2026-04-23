@@ -3,6 +3,7 @@
 #include "storage.h"
 
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <algorithm>
 #include <vector>
 
@@ -43,6 +44,27 @@ bool tryJoin(const char *ssid, const char *pass, uint32_t timeoutMs,
 void netBegin() {
     WiFi.mode(WIFI_STA);
     WiFi.setHostname(s_hostname);
+
+    // Unlock the full 2.4 GHz band (channels 1..13) so APs hosted on 12 /
+    // 13 are visible. "01" is the ITU world/global regulatory code and is
+    // accepted by ESP-IDF. Without this, Android hotspots that auto-pick
+    // channel 12 or 13 are simply invisible to our scan.
+    wifi_country_t cc = {};
+    strcpy(cc.cc, "01");
+    cc.schan        = 1;
+    cc.nchan        = 13;
+    cc.policy       = WIFI_COUNTRY_POLICY_MANUAL;
+    esp_wifi_set_country(&cc);
+
+    // Protected Management Frames: mark ourselves as capable (but not
+    // required) so WPA3 / WPA2-with-PMF APs -- such as the Pixel hotspot
+    // when "Hotspot security" is set to WPA3-Personal -- will let us
+    // associate. WPA2-only APs ignore the flag.
+    wifi_config_t sta = {};
+    esp_wifi_get_config(WIFI_IF_STA, &sta);
+    sta.sta.pmf_cfg.capable  = true;
+    sta.sta.pmf_cfg.required = false;
+    esp_wifi_set_config(WIFI_IF_STA, &sta);
 }
 
 bool netConnect(bool (*abortCb)(),
@@ -84,7 +106,14 @@ const char *netHostname() { return s_hostname; }
 int netScanNow() {
     s_scan.clear();
     WiFi.scanDelete();
-    int n = WiFi.scanNetworks(/*async=*/false, /*showHidden=*/false);
+    // Active scan (async=false), include hidden SSIDs, all channels, longer
+    // per-channel dwell so phone hotspots with slower beacon intervals land
+    // in the result. passive=false means we send probe requests, which also
+    // prompts APs with cloaked SSIDs to reply.
+    int n = WiFi.scanNetworks(/*async=*/false,
+                              /*showHidden=*/true,
+                              /*passive=*/false,
+                              /*max_ms_per_chan=*/300);
     if (n < 0) return 0;
     for (int i = 0; i < n; i++) {
         upsertScan(WiFi.SSID(i), WiFi.RSSI(i), WiFi.encryptionType(i));

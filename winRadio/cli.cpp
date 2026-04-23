@@ -295,8 +295,10 @@ static void cmdReconnect() {
 }
 
 static void cmdSd(const String &arg) {
-    String a = arg; a.trim();
-    if (a.length() == 0 || a.equalsIgnoreCase("status")) {
+    String sub, rest;
+    splitArg(arg, sub, rest);
+
+    if (sub.length() == 0 || eqi(sub, "status")) {
         Serial.print(F("SD : "));
         outln(storageSdMounted() ? "mounted" : "not mounted");
         if (storageSdMounted()) {
@@ -307,10 +309,9 @@ static void cmdSd(const String &arg) {
         }
         return;
     }
-    if (a.startsWith("ls")) {
-        String p = a.substring(2); p.trim();
-        if (p.length() == 0) p = "/";
+    if (eqi(sub, "ls")) {
         if (!storageSdMounted()) { outln(F("SD not mounted.")); return; }
+        String p = rest.length() ? rest : String("/");
         File root = SD_MMC.open(p);
         if (!root || !root.isDirectory()) { outln(F("Not a directory.")); return; }
         File f = root.openNextFile();
@@ -325,19 +326,29 @@ static void cmdSd(const String &arg) {
         outln();
         return;
     }
-    if (a.equalsIgnoreCase("reload")) {
+    if (eqi(sub, "reload")) {
         if (!storageSdMounted()) { outln(F("SD not mounted.")); return; }
         int n = stationsLoadFromSd();
         bool t = displayLoadThemeFromSd();
         Serial.printf("Reloaded %d stations; theme %s.\r\n", n, t ? "applied" : "unchanged");
         return;
     }
-    outln(F("Usage: sd [status|ls <path>|reload]"));
+    outln(F("Usage: sd [status | ls <path> | reload]"));
 }
 
 // ---- dispatcher ----------------------------------------------------------
 
 static bool eqi(const String &a, const char *b) { return a.equalsIgnoreCase(b); }
+
+// Split an arg string "subcmd rest of line" into first token (used as a
+// subcommand, matched case-insensitively by the caller) and the untouched
+// remainder. The remainder preserves case -- SSIDs, URLs, paths, etc. are
+// data and must not be folded.
+static void splitArg(const String &arg, String &first, String &rest) {
+    int sp = arg.indexOf(' ');
+    if (sp < 0) { first = arg; rest = ""; }
+    else { first = arg.substring(0, sp); rest = arg.substring(sp + 1); rest.trim(); }
+}
 
 static void dispatch(const String &raw) {
     String line = raw; line.trim();
@@ -357,21 +368,20 @@ static void dispatch(const String &raw) {
     else if (eqi(cmd, "volume") || eqi(cmd, "vol") || eqi(cmd, "v"))         cmdVolume(arg);
     else if (eqi(cmd, "vol+") || cmd == "+")                                 cmdVolBump(+1);
     else if (eqi(cmd, "vol-") || cmd == "-")                                 cmdVolBump(-1);
-    else if (eqi(cmd, "wifi") && arg.length() == 0)                          cmdWifiAdd("");
-    else if (eqi(cmd, "wifi") && eqi(arg, "scan"))                           cmdWifiScan();
-    else if (eqi(cmd, "wifi") && eqi(arg, "list"))                           cmdWifiList();
-    else if (eqi(cmd, "wifi") && eqi(arg, "clear"))                          cmdWifiClear();
-    else if (eqi(cmd, "wifi") && arg.startsWith("add")) {
-        String rest = arg.substring(3); rest.trim();
-        cmdWifiAdd(rest);
-    }
-    else if (eqi(cmd, "wifi") && arg.startsWith("remove")) {
-        String rest = arg.substring(6); rest.trim();
-        cmdWifiRemove(rest);
-    }
-    else if (eqi(cmd, "wifi") && arg.startsWith("move")) {
-        String rest = arg.substring(4); rest.trim();
-        cmdWifiMove(rest);
+    else if (eqi(cmd, "wifi")) {
+        String sub, rest;
+        splitArg(arg, sub, rest);
+        if      (sub.length() == 0)        cmdWifiAdd("");
+        else if (eqi(sub, "scan"))         cmdWifiScan();
+        else if (eqi(sub, "list"))         cmdWifiList();
+        else if (eqi(sub, "show"))         cmdWifiList();   // alias for list
+        else if (eqi(sub, "clear"))        cmdWifiClear();
+        else if (eqi(sub, "add"))          cmdWifiAdd(rest);
+        else if (eqi(sub, "remove") || eqi(sub, "rm") || eqi(sub, "del"))
+                                            cmdWifiRemove(rest);
+        else if (eqi(sub, "move") || eqi(sub, "mv"))
+                                            cmdWifiMove(rest);
+        else                                outln(F("Unknown wifi subcommand. Try 'help'."));
     }
     else if (eqi(cmd, "reconnect"))                                          cmdReconnect();
     else if (eqi(cmd, "sd"))                                                 cmdSd(arg);
@@ -408,14 +418,15 @@ void cliFirstRunSetup() {
     }
 }
 
-void cliWaitForNewNetwork() {
+void cliWaitForNewNetwork(void (*tickCb)()) {
     int before = wifiNetworkCount();
     outln();
     outln(F("Setup mode: run 'wifi add' to configure a network."));
     prompt();
     while (wifiNetworkCount() == before) {
         cliPoll();
-        provisionPoll();   // no-op until provisioning lands; harmless to call
+        provisionPoll();
+        if (tickCb) tickCb();
         delay(10);
     }
 }
