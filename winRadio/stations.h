@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <Arduino.h>
+
 int         stationsCount();
 const char *stationsUrl(int idx);    // NVS override > SD CSV > compiled preset
 const char *stationsName(int idx);   // NVS override > SD CSV > compiled preset
