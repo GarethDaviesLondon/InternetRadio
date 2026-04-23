@@ -28,7 +28,14 @@ struct ScanResult {
     String  ssid;
     int32_t rssi;
     uint8_t encryption;   // WIFI_AUTH_OPEN / WPA / WPA2 / ...
+    uint8_t channel;      // 2.4 GHz channel (1..13)
 };
+
+// One-shot connect that bypasses the saved-list loop. Used by the CLI's
+// `wifi connect <ssid> [pass]` so users can force-try a hotspot that
+// doesn't show up in the scan.
+bool netConnectAdhoc(const String &ssid, const String &pass,
+                     uint32_t timeoutMs = 10000);
 
 // Synchronous blocking scan. Returns number of APs found; results are
 // cached internally and accessed via netScanResult(i). Uniques SSIDs

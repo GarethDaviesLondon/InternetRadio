@@ -22,10 +22,12 @@
 // bootTick: runs once per iteration of every blocking wait in setup().
 // Handles the things the user expects to always work, even before we've
 // joined a network: backlight dim, L+R reboot combo, clean Left-press
-// deep sleep. Called from every setup()-phase busy loop so the radio is
-// not "bricked awake" while trying to associate.
+// deep sleep, and the serial CLI (so the user can type `sleep`, `reboot`,
+// `wifi add`, etc. during any boot-time blocking wait). Called from every
+// setup()-phase busy loop.
 static void bootTick() {
     displayBacklightTick();
+    cliPoll();
     if (inputRebootCombo(3000)) {
         displayShowMessage("Rebooting...");
         delay(500);
@@ -34,8 +36,18 @@ static void bootTick() {
     InputEvent ev = inputPoll();
     if (ev != INPUT_NONE) displayNoteActivity();
     if (ev == INPUT_SLEEP) powerDeepSleep();   // doesn't return
-    // NEXT / VOL events are ignored during boot: audio isn't running yet
-    // and the station list is rendered in a different screen.
+    // NEXT / VOL events are ignored during boot: audio isn't running yet.
+
+    // Low-rate diagnostic print so "my buttons aren't doing anything"
+    // reports can confirm whether the pins are actually being read.
+    static uint32_t lastDbg = 0;
+    if (millis() - lastDbg > 2000) {
+        lastDbg = millis();
+        Serial.printf("boot: L=%d M=%d R=%d\r\n",
+                      inputLeftHeld() ? 1 : 0,
+                      inputMidHeld()  ? 1 : 0,
+                      inputRightHeld()? 1 : 0);
+    }
 }
 
 // Abort callback passed to netConnect(): the right button (V) triggers

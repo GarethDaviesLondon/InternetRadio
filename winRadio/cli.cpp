@@ -19,6 +19,9 @@ static const char *PROMPT = "radio> ";
 
 static String g_buf;
 static bool   g_lastWasCr = false;
+static bool   g_cancelSetup = false;
+
+void cliCancelSetup() { g_cancelSetup = true; }
 
 // ---- output helpers (CRLF always) ---------------------------------------
 
@@ -92,13 +95,17 @@ static void cmdHelp() {
     outln(F("  volume [n], vol [n]    Show or set volume (1..5)"));
     outln(F("  vol+ / vol- / + / -    Step volume"));
     outln();
-    outln(F("  wifi scan              Scan visible networks"));
+    outln(F("  wifi scan              Scan visible networks (shows channel)"));
+    outln(F("  wifi scan-hard         3-pass scan -- catches slow-beacon hotspots"));
     outln(F("  wifi list              List saved networks (ordered)"));
     outln(F("  wifi add [ssid]        Add a network (interactive: scan + pick + pass)"));
+    outln(F("  wifi connect <ssid> [pass]"));
+    outln(F("                         Ad-hoc connect; offers to save on success"));
     outln(F("  wifi                   Alias for 'wifi add'"));
     outln(F("  wifi remove <n>        Remove saved network N"));
     outln(F("  wifi move <from> <to>  Reorder saved networks"));
     outln(F("  wifi clear             Erase ALL saved networks"));
+    outln(F("  cancel                 Exit setup-mode and resume boot flow"));
     outln(F("  reconnect              Try saved networks again"));
     outln();
     outln(F("  sd status              Show SD card state"));
@@ -183,20 +190,71 @@ static void cmdVolBump(int delta) {
 
 // ---- WiFi commands -------------------------------------------------------
 
-static void cmdWifiScan() {
-    outln(F("Scanning..."));
-    int n = netScanNow();
-    if (n == 0) { outln(F("No networks found.")); return; }
-    outln();
+static void printScanList(int n) {
     for (int i = 0; i < n; i++) {
         const ScanResult *r = netScanResult(i);
         if (i + 1 < 10) Serial.write(' ');
         Serial.print(i + 1); Serial.print(F("  "));
         Serial.print(r->rssi); Serial.print(F(" dBm  "));
+        Serial.print(F("ch")); Serial.print(r->channel);
+        if (r->channel < 10) Serial.write(' ');
+        Serial.print(F("  "));
         Serial.print(encStr(r->encryption)); Serial.print(F("  "));
         outln(r->ssid);
     }
+}
+
+static void cmdWifiScan(bool hard = false) {
+    outln(hard ? F("Hard scanning (3 passes)...") : F("Scanning..."));
+    int n = netScanNow();
+    if (hard) {
+        // Phone hotspots often beacon slowly. A second and third pass,
+        // plus a small sleep between, catches APs that missed the first.
+        delay(500);  (void)netScanNow();
+        delay(500);  n = netScanNow();
+    }
+    if (n == 0) {
+        outln(F("No networks found."));
+        outln(F("  * If looking for a phone hotspot:"));
+        outln(F("    - set AP band to 2.4 GHz (not 5 GHz)"));
+        outln(F("    - security WPA2 or WPA2/3 (not WPA3-only)"));
+        outln(F("    - turn the hotspot off and on again to refresh its beacon"));
+        return;
+    }
     outln();
+    printScanList(n);
+    outln();
+}
+
+static void cmdWifiConnect(const String &rest) {
+    // Parse: "SSID" OR "SSID password" OR "\"SSID with spaces\" password".
+    String ssid, pass;
+    String r = rest; r.trim();
+    if (r.length() == 0) { outln(F("Usage: wifi connect <ssid> [password]")); return; }
+    if (r.startsWith("\"")) {
+        int end = r.indexOf('"', 1);
+        if (end < 0) { outln(F("Unterminated quoted SSID.")); return; }
+        ssid = r.substring(1, end);
+        pass = r.substring(end + 1); pass.trim();
+    } else {
+        int sp = r.indexOf(' ');
+        if (sp < 0) { ssid = r; }
+        else        { ssid = r.substring(0, sp); pass = r.substring(sp + 1); pass.trim(); }
+    }
+    outln();
+    Serial.print(F("Connecting to '")); Serial.print(ssid); outln(F("'..."));
+    if (netConnectAdhoc(ssid, pass, 12000)) {
+        outln(F("Connected."));
+        // Offer to save.
+        outln(F("Save this network to the saved list? [y/N]"));
+        String y = readLineBlocking("> ", false); y.trim();
+        if (y.equalsIgnoreCase("y") || y.equalsIgnoreCase("yes")) {
+            wifiAddNetwork(ssid, pass);
+            outln(F("Saved."));
+        }
+    } else {
+        outln(F("Connect failed. Check SSID / password, and band/security on the AP."));
+    }
 }
 
 static void cmdWifiList() {
@@ -230,14 +288,7 @@ static void cmdWifiAdd(const String &presetSsid) {
             if (n == 0) { outln(F("No networks found. Enter SSID manually.")); }
             else {
                 outln();
-                for (int i = 0; i < n; i++) {
-                    const ScanResult *r = netScanResult(i);
-                    if (i + 1 < 10) Serial.write(' ');
-                    Serial.print(i + 1); Serial.print(F("  "));
-                    Serial.print(r->rssi); Serial.print(F(" dBm  "));
-                    Serial.print(encStr(r->encryption)); Serial.print(F("  "));
-                    outln(r->ssid);
-                }
+                printScanList(n);
                 outln();
                 String sel = readLineBlocking("Pick # (or blank to type SSID): ", false);
                 sel.trim();
@@ -375,15 +426,23 @@ static void dispatch(const String &raw) {
         splitArg(arg, sub, rest);
         if      (sub.length() == 0)        cmdWifiAdd("");
         else if (eqi(sub, "scan"))         cmdWifiScan();
+        else if (eqi(sub, "scan-hard") || eqi(sub, "rescan"))
+                                            cmdWifiScan(/*hard=*/true);
         else if (eqi(sub, "list"))         cmdWifiList();
         else if (eqi(sub, "show"))         cmdWifiList();   // alias for list
         else if (eqi(sub, "clear"))        cmdWifiClear();
         else if (eqi(sub, "add"))          cmdWifiAdd(rest);
+        else if (eqi(sub, "connect") || eqi(sub, "try"))
+                                            cmdWifiConnect(rest);
         else if (eqi(sub, "remove") || eqi(sub, "rm") || eqi(sub, "del"))
                                             cmdWifiRemove(rest);
         else if (eqi(sub, "move") || eqi(sub, "mv"))
                                             cmdWifiMove(rest);
         else                                outln(F("Unknown wifi subcommand. Try 'help'."));
+    }
+    else if (eqi(cmd, "cancel") || eqi(cmd, "exit")) {
+        cliCancelSetup();
+        outln(F("Setup cancelled (if active)."));
     }
     else if (eqi(cmd, "reconnect"))                                          cmdReconnect();
     else if (eqi(cmd, "sd"))                                                 cmdSd(arg);
@@ -421,11 +480,13 @@ void cliFirstRunSetup() {
 }
 
 void cliWaitForNewNetwork(void (*tickCb)()) {
+    g_cancelSetup = false;
     int before = wifiNetworkCount();
     outln();
-    outln(F("Setup mode: run 'wifi add' to configure a network."));
+    outln(F("Setup mode: run 'wifi add', 'wifi connect <ssid> [pass]',"));
+    outln(F("or 'cancel' to resume without a new network."));
     prompt();
-    while (wifiNetworkCount() == before) {
+    while (wifiNetworkCount() == before && !g_cancelSetup) {
         cliPoll();
         provisionPoll();
         if (tickCb) tickCb();

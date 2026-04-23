@@ -304,10 +304,13 @@ void displayShowWifiScan(const char *footer, int highlightIdx) {
             if (!r) continue;
             int y = top + i * rowH;
             rssiBars(2, y, (int)r->rssi);
-            s_gfx->setTextColor(i == highlightIdx ? RGB565_GREEN : RGB565_WHITE);
+            s_gfx->setTextColor(RGB565_CYAN);
             s_gfx->setCursor(22, y + 2);
+            s_gfx->printf("ch%-2u", r->channel);
+            s_gfx->setTextColor(i == highlightIdx ? RGB565_GREEN : RGB565_WHITE);
+            s_gfx->setCursor(52, y + 2);
             String s = r->ssid;
-            if (s.length() > 32) s = s.substring(0, 32);
+            if (s.length() > 28) s = s.substring(0, 28);
             s_gfx->print(s);
         }
         if (n > maxRows) {

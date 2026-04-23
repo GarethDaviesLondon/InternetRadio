@@ -185,16 +185,18 @@ void audioPlayMorseR() {
         i2s_del_channel(tx); return;
     }
 
-    // R = dot dash dot. 200 ms lead silence so the codec/PA finish their
-    // unmute ramp before the first dot (otherwise it sounds like "N").
-    const uint32_t U = 120, FR_PER_MS = AUDIO_SAMPLE_RATE / 1000;
+    // R = dot dash dot. Target ~30 WPM: PARIS standard is 50 units per
+    // word, so 30 WPM -> 1500 units/min -> 1 unit = 40 ms. Lead with 200 ms
+    // of silence so the codec/PA finish their unmute ramp before the first
+    // dot (otherwise it sounds like "N").
+    const uint32_t U = 40, FR_PER_MS = AUDIO_SAMPLE_RATE / 1000;
     morseWriteFrames(tx, 200     * FR_PER_MS, false);
     morseWriteFrames(tx, U       * FR_PER_MS, true);
     morseWriteFrames(tx, U       * FR_PER_MS, false);
     morseWriteFrames(tx, (U * 3) * FR_PER_MS, true);
     morseWriteFrames(tx, U       * FR_PER_MS, false);
     morseWriteFrames(tx, U       * FR_PER_MS, true);
-    morseWriteFrames(tx, 200     * FR_PER_MS, false);
+    morseWriteFrames(tx, 120     * FR_PER_MS, false);  // short tail, still avoids clip
 
     i2s_channel_disable(tx);
     i2s_del_channel(tx);

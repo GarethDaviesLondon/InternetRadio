@@ -11,8 +11,13 @@ void cliFirstRunSetup();    // blocking: prompt for SSID/pass if NVS empty
 void cliPoll();             // non-blocking; call from loop()
 
 // Block, polling the serial CLI (and provision portal if active), until
-// the saved-network count increases. Called when the user triggers setup
-// mid-boot via the right button. `tickCb` is invoked once per poll cycle
-// (nullable) -- the orchestrator uses it to drive backlight dim / sleep /
-// reboot while we sit here waiting.
+// the saved-network count increases OR cliCancelSetup() is called.
+// `tickCb` is invoked once per poll cycle (nullable); the orchestrator
+// uses it to drive backlight dim / sleep / reboot while we sit here.
 void cliWaitForNewNetwork(void (*tickCb)() = nullptr);
+
+// Set by the `cancel` CLI command -- forces cliWaitForNewNetwork() to
+// return immediately without a saved network. The orchestrator will fall
+// through to netConnect() (which will just fail again if no creds exist;
+// that's the expected UX for "let me back out").
+void cliCancelSetup();

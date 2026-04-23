@@ -13,15 +13,15 @@ std::vector<ScanResult> s_scan;
 int  s_lastJoinedSlot = -1;
 
 // Insert or update the SSID entry keeping the strongest RSSI.
-void upsertScan(const String &ssid, int32_t rssi, uint8_t enc) {
+void upsertScan(const String &ssid, int32_t rssi, uint8_t enc, uint8_t channel) {
     if (ssid.length() == 0) return;
     for (auto &r : s_scan) {
         if (r.ssid == ssid) {
-            if (rssi > r.rssi) { r.rssi = rssi; r.encryption = enc; }
+            if (rssi > r.rssi) { r.rssi = rssi; r.encryption = enc; r.channel = channel; }
             return;
         }
     }
-    s_scan.push_back({ssid, rssi, enc});
+    s_scan.push_back({ssid, rssi, enc, channel});
 }
 
 // Ordered insertion: try this network for up to timeoutMs. Polls abortCb
@@ -116,7 +116,7 @@ int netScanNow() {
                               /*max_ms_per_chan=*/300);
     if (n < 0) return 0;
     for (int i = 0; i < n; i++) {
-        upsertScan(WiFi.SSID(i), WiFi.RSSI(i), WiFi.encryptionType(i));
+        upsertScan(WiFi.SSID(i), WiFi.RSSI(i), WiFi.encryptionType(i), WiFi.channel(i));
     }
     // Sort by descending RSSI so the strongest networks come first.
     std::sort(s_scan.begin(), s_scan.end(),
@@ -131,6 +131,13 @@ int netScanCount() { return (int)s_scan.size(); }
 const ScanResult *netScanResult(int idx) {
     if (idx < 0 || idx >= (int)s_scan.size()) return nullptr;
     return &s_scan[idx];
+}
+
+bool netConnectAdhoc(const String &ssid, const String &pass, uint32_t timeoutMs) {
+    if (ssid.length() == 0) return false;
+    s_lastJoinedSlot = -1;
+    Serial.printf("net: ad-hoc connect to '%s'...\r\n", ssid.c_str());
+    return tryJoin(ssid.c_str(), pass.c_str(), timeoutMs, nullptr);
 }
 
 // ---- mDNS / discovery (stubs) -------------------------------------------
