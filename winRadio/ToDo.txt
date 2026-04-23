@@ -1,5 +1,61 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
+1. The wifi now finds no nodes, But I get this on the serial port:
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+boot: L=0 M=0 R=0
+
+Please fix.
 
 == Changes made in this round (24-4-2026) =======================================
 
