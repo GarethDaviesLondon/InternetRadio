@@ -56,9 +56,17 @@ String pageHead(const char *title) {
            ".card h2{margin:0 0 .4em;font-size:1em;color:#555}"
            ".kv{display:grid;grid-template-columns:8em 1fr;gap:.2em 1em;font-family:monospace;font-size:.9em}"
            ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.4em}"
-           ".station{padding:.55em .7em;border:1px solid #ccc;border-radius:5px;background:#fff;cursor:pointer;text-decoration:none;color:#222;display:block}"
+           ".stationRow{display:flex;gap:.3em;align-items:stretch}"
+           ".stationPick{flex:1}"
+           ".station{padding:.55em .7em;border:1px solid #ccc;border-radius:5px;background:#fff;cursor:pointer;text-decoration:none;color:#222;display:block;width:100%;text-align:left;font:inherit}"
            ".station.cur{border-color:#18c;background:#e6f2fb}"
            ".station small{display:block;color:#888;margin-top:.2em;word-break:break-all}"
+           ".infoBtn{background:transparent;color:#18c;border:1px solid #ccc;border-radius:5px;padding:.3em .6em;cursor:pointer;font-size:1.1em;width:auto}"
+           ".infoBtn:hover{background:#eef}"
+           "#modalBg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35)}"
+           "#modalBg.show,#modal.show{display:block}"
+           "#modal{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;padding:1em 1.2em;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,.2);max-width:94%;width:480px;z-index:10}"
+           "#modal h2{margin:.2em 0 .6em}"
            "button,.btn{background:#18c;color:#fff;border:0;padding:.55em 1em;border-radius:4px;cursor:pointer;font-size:1em}"
            "button.warn{background:#b33}"
            ".row{display:flex;gap:.4em;align-items:center;flex-wrap:wrap}"
@@ -177,7 +185,8 @@ void handleIndex() {
 
     p += F("<div class=card><h2>Stations</h2><div class=grid>");
     for (int i = 0; i < n; i++) {
-        p += F("<form method=POST action=/api/station>");
+        p += F("<div class=stationRow>");
+        p += F("<form method=POST action=/api/station class=stationPick>");
         p += F("<input type=hidden name=n value="); p += i; p += F(">");
         p += F("<button class='station");
         if (i == cur) p += F(" cur");
@@ -185,12 +194,58 @@ void handleIndex() {
         p += htmlEscape(audioStationDisplayName(i));
         p += F("<small>"); p += htmlEscape(stationsUrl(i)); p += F("</small>");
         p += F("</button></form>");
+        // Info / edit button opens the per-station modal.
+        p += F("<button type=button class=infoBtn title='Edit name + URL' "
+               "onclick=\"openEdit(");
+        p += i; p += F(",");
+        p += "'"; p += htmlEscape(stationsName(i)); p += "',";
+        p += "'"; p += htmlEscape(stationsUrl(i)); p += "',";
+        p += "'"; p += htmlEscape(stationsOverrideName(i)); p += "',";
+        p += "'"; p += htmlEscape(stationsOverrideUrl(i)); p += "')\">&#9432;</button>";
+        p += F("</div>");
     }
     p += F("</div></div>");
+
+    // Modal + script for /api/station-edit.
+    p += F(
+      "<div id=modalBg onclick=\"closeEdit(event)\"></div>"
+      "<div id=modal>"
+      "<h2>Edit station <span id=mi></span></h2>"
+      "<p style='color:#666;margin-top:-.4em;font-size:.9em'>"
+      "Leave a field blank to use the default. Reset clears overrides.</p>"
+      "<form method=POST action=/api/station-edit>"
+      "<input type=hidden name=n id=mn>"
+      "<label>Friendly name"
+      "<input name=name id=mname maxlength=60 placeholder='(default)'></label>"
+      "<label>URL"
+      "<input name=url id=murl maxlength=200 placeholder='(default)'></label>"
+      "<div class=row style='margin-top:.6em'>"
+      "<button type=submit>Save</button>"
+      "<button type=submit name=reset value=1 class=warn>Reset</button>"
+      "<button type=button onclick=\"closeEdit()\">Cancel</button>"
+      "</div></form></div>"
+      "<script>"
+      "function openEdit(n,defName,defUrl,ovName,ovUrl){"
+      " mi.textContent=n+1;"
+      " mn.value=n;"
+      " mname.value=ovName||'';"
+      " murl.value=ovUrl||'';"
+      " mname.placeholder=defName||'(default)';"
+      " murl.placeholder=defUrl||'(default)';"
+      " modal.classList.add('show');"
+      " modalBg.classList.add('show');"
+      "}"
+      "function closeEdit(e){"
+      " if(e&&e.target&&e.target.id!=='modalBg')return;"
+      " modal.classList.remove('show');"
+      " modalBg.classList.remove('show');"
+      "}"
+      "</script>");
 
     p += F("<div class=card><h2>API</h2><div class=kv>"
            "<div>GET /api/state</div><div>Full state as JSON</div>"
            "<div>POST /api/station</div><div>Body: n=&lt;0..N-1&gt;</div>"
+           "<div>POST /api/station-edit</div><div>Body: n=&lt;slot&gt; name=... url=... (or reset=1)</div>"
            "<div>POST /api/next</div><div></div>"
            "<div>POST /api/prev</div><div></div>"
            "<div>POST /api/volume</div><div>Body: raw=&lt;0..21&gt;  or  v=&lt;1..5&gt;  or  d=&pm;1</div>"
@@ -211,6 +266,24 @@ void handleStation() {
     int n = s_http.arg("n").toInt();
     if (n < 0 || n >= stationsCount()) { s_http.send(400, "text/plain", "out of range"); return; }
     audioSelectStation(n);
+    s_http.sendHeader("Location", "/");
+    s_http.send(302);
+}
+
+void handleStationEdit() {
+    if (!s_http.hasArg("n")) { s_http.send(400, "text/plain", "missing n"); return; }
+    int n = s_http.arg("n").toInt();
+    if (n < 0 || n >= stationsCount()) { s_http.send(400, "text/plain", "out of range"); return; }
+    if (s_http.hasArg("reset")) {
+        stationsResetSlot(n);
+    } else {
+        String name = s_http.arg("name"); name.trim();
+        String url  = s_http.arg("url");  url.trim();
+        if (!stationsSetSlot(n, name, url)) {
+            s_http.send(500, "text/plain", "save failed (NVS full)");
+            return;
+        }
+    }
     s_http.sendHeader("Location", "/");
     s_http.send(302);
 }
@@ -277,7 +350,8 @@ void webBegin() {
 
     s_http.on("/",             HTTP_GET,  handleIndex);
     s_http.on("/api/state",    HTTP_GET,  handleState);
-    s_http.on("/api/station",  HTTP_POST, handleStation);
+    s_http.on("/api/station",       HTTP_POST, handleStation);
+    s_http.on("/api/station-edit",  HTTP_POST, handleStationEdit);
     s_http.on("/api/next",     HTTP_POST, handleNext);
     s_http.on("/api/prev",     HTTP_POST, handlePrev);
     s_http.on("/api/volume",   HTTP_POST, handleVolume);

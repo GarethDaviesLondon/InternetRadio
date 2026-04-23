@@ -95,6 +95,8 @@ static void cmdHelp() {
     outln(F("  status, stat, s        Show radio status"));
     outln(F("  stations, list         List preset stations"));
     outln(F("  station <n>, sel <n>   Select station N (1-based)"));
+    outln(F("  station edit <n>       Edit friendly name + URL for slot N"));
+    outln(F("  station reset <n>      Revert slot N to the default name + URL"));
     outln(F("  next / prev            Cycle stations"));
     outln(F("  volume [n], vol [n]    Show or set volume (1..5)"));
     outln(F("  vol+ / vol- / + / -    Step volume"));
@@ -177,6 +179,43 @@ static void cmdSelectStation(const String &arg) {
     Serial.print(F("Switched to station "));
     Serial.print(n); Serial.print(F(": "));
     outln(stationsUrl(n - 1));
+}
+
+static void cmdStationEdit(const String &arg) {
+    int n = arg.toInt();
+    if (n < 1 || n > stationsCount()) {
+        Serial.print(F("Usage: station edit <1..")); Serial.print(stationsCount()); outln(F(">"));
+        return;
+    }
+    int idx = n - 1;
+    outln();
+    Serial.print(F("Editing slot ")); Serial.print(n);
+    Serial.print(F(": currently '")); Serial.print(stationsName(idx));
+    Serial.print(F("' @ ")); outln(stationsUrl(idx));
+    outln(F("Leave a field blank to keep the current value. Type 'RESET' to clear overrides."));
+    String newName = readLineBlocking("Friendly name: ", false); newName.trim();
+    if (newName.equalsIgnoreCase("RESET")) {
+        stationsResetSlot(idx);
+        outln(F("Slot reset to defaults."));
+        return;
+    }
+    String newUrl  = readLineBlocking("URL          : ", false); newUrl.trim();
+    String keepName = (newName.length() ? newName : String(stationsOverrideName(idx)));
+    String keepUrl  = (newUrl.length()  ? newUrl  : String(stationsOverrideUrl(idx)));
+    if (!stationsSetSlot(idx, keepName, keepUrl)) {
+        outln(F("Save failed (NVS full and nothing droppable). No change."));
+        return;
+    }
+    outln(F("Saved. Use 'station <n>' to play the edited entry."));
+}
+
+static void cmdStationReset(const String &arg) {
+    int n = arg.toInt();
+    if (n < 1 || n > stationsCount()) {
+        outln(F("Usage: station reset <n>")); return;
+    }
+    stationsResetSlot(n - 1);
+    Serial.print(F("Slot ")); Serial.print(n); outln(F(" reverted to default."));
 }
 
 static void cmdVolume(const String &arg) {
@@ -444,7 +483,13 @@ static void dispatch(const String &raw) {
     if      (eqi(cmd, "help") || cmd == "?")                                 cmdHelp();
     else if (eqi(cmd, "status") || eqi(cmd, "stat") || eqi(cmd, "s"))        cmdStatus();
     else if (eqi(cmd, "stations") || eqi(cmd, "list"))                       cmdListStations();
-    else if (eqi(cmd, "station") || eqi(cmd, "sel"))                         cmdSelectStation(arg);
+    else if (eqi(cmd, "station") || eqi(cmd, "sel")) {
+        String sub, rest;
+        splitArg(arg, sub, rest);
+        if (eqi(sub, "edit"))        cmdStationEdit(rest);
+        else if (eqi(sub, "reset"))  cmdStationReset(rest);
+        else                         cmdSelectStation(arg);
+    }
     else if (eqi(cmd, "next"))                                               { audioNextStation(); cmdStatus(); }
     else if (eqi(cmd, "prev"))                                               { audioPrevStation(); cmdStatus(); }
     else if (eqi(cmd, "volume") || eqi(cmd, "vol") || eqi(cmd, "v"))         cmdVolume(arg);

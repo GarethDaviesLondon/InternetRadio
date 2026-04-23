@@ -359,13 +359,29 @@ long        audioBitrate()       { return s_bitrate; }
 bool        audioIsRunning()     { return s_audio.isRunning(); }
 unsigned    audioInfoEventCount(){ return s_infoCount; }
 
-// Derive a tidy display name from the URL:
-//   http://ice1.somafm.com/groovesalad-128-mp3  -> "groovesalad"
-//   http://stream.radioparadise.com/mp3-128     -> "radioparadise"
-//   http://sc6.radiocaroline.net:8040/stream    -> "stream"
-// If the tail is useless ("stream", ";", "") fall back to the host.
-// Result is truncated to fit the LCD.
+// Derive a tidy display name, with three-layer precedence:
+//   1. NVS override (stations.cpp, set via the /api/station-edit web
+//      modal or the CLI `station edit` command).
+//   2. If this is the currently-playing slot and the stream has sent an
+//      ICY "station name", use that (the station identifier off the air).
+//   3. URL-derived short name:
+//        http://ice1.somafm.com/groovesalad-128-mp3 -> "groovesalad"
+//        http://stream.radioparadise.com/mp3-128    -> "radioparadise"
+//        http://sc6.radiocaroline.net:8040/stream   -> "stream"
+//      If the tail is useless ("stream", ";", "") the host is used.
+// Result is truncated to 20 chars to fit the LCD.
 const char *audioStationDisplayName(int idx) {
+    const char *ov = stationsOverrideName(idx);
+    if (ov && *ov) {
+        s_displayName = ov;
+        if (s_displayName.length() > 20) s_displayName = s_displayName.substring(0, 20);
+        return s_displayName.c_str();
+    }
+    if (idx == s_chosen && s_curStation.length() > 0) {
+        s_displayName = s_curStation;
+        if (s_displayName.length() > 20) s_displayName = s_displayName.substring(0, 20);
+        return s_displayName.c_str();
+    }
     String url = stationsUrl(idx);
     if (url.length() == 0) { s_displayName = ""; return s_displayName.c_str(); }
 

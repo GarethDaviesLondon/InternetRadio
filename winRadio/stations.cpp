@@ -24,9 +24,25 @@ constexpr int kDefaultCount = sizeof(kDefaults) / sizeof(kDefaults[0]);
 // the compiled defaults). We cap at 32 entries to keep RAM predictable.
 constexpr int kMaxStations = 32;
 struct Entry { String name; String url; };
-Entry s_list[kMaxStations];
-int   s_count   = 0;
-bool  s_fromSd  = false;
+Entry  s_list[kMaxStations];
+int    s_count   = 0;
+bool   s_fromSd  = false;
+
+// Per-slot overrides, persisted in the "stations" NVS namespace.
+String s_ovName[kMaxStations];
+String s_ovUrl [kMaxStations];
+
+String nvKeyName(int i) { return String("na") + i; }
+String nvKeyUrl (int i) { return String("ur") + i; }
+
+bool tryPersist(int idx, const String &name, const String &url) {
+    bool ok = true;
+    if (name.length() > 0) ok = ok && storagePutString("stations", nvKeyName(idx).c_str(), name);
+    else                   storageRemove("stations", nvKeyName(idx).c_str());
+    if (url.length() > 0)  ok = ok && storagePutString("stations", nvKeyUrl(idx).c_str(),  url);
+    else                   storageRemove("stations", nvKeyUrl(idx).c_str());
+    return ok;
+}
 } // namespace
 
 int stationsCount() {
@@ -34,6 +50,8 @@ int stationsCount() {
 }
 
 const char *stationsUrl(int idx) {
+    if (idx >= 0 && idx < kMaxStations && s_ovUrl[idx].length() > 0)
+        return s_ovUrl[idx].c_str();
     if (s_fromSd) {
         if (idx < 0 || idx >= s_count) return "";
         return s_list[idx].url.c_str();
@@ -43,12 +61,69 @@ const char *stationsUrl(int idx) {
 }
 
 const char *stationsName(int idx) {
+    if (idx >= 0 && idx < kMaxStations && s_ovName[idx].length() > 0)
+        return s_ovName[idx].c_str();
     if (s_fromSd) {
         if (idx < 0 || idx >= s_count) return "";
         return s_list[idx].name.c_str();
     }
     if (idx < 0 || idx >= kDefaultCount) return "";
     return kDefaults[idx].name;
+}
+
+const char *stationsOverrideName(int idx) {
+    if (idx < 0 || idx >= kMaxStations) return "";
+    return s_ovName[idx].c_str();
+}
+const char *stationsOverrideUrl(int idx) {
+    if (idx < 0 || idx >= kMaxStations) return "";
+    return s_ovUrl[idx].c_str();
+}
+
+void stationsApplyOverrides() {
+    for (int i = 0; i < kMaxStations; i++) {
+        s_ovName[i] = storageGetString("stations", nvKeyName(i).c_str(), "");
+        s_ovUrl[i]  = storageGetString("stations", nvKeyUrl(i).c_str(),  "");
+    }
+}
+
+bool stationsSetSlot(int idx, const String &name, const String &url) {
+    if (idx < 0 || idx >= kMaxStations) return false;
+
+    // Try the persistent write. On NVS exhaustion, progressively drop the
+    // highest-indexed *other* override and retry, so the slot being edited
+    // always wins. User spec: "If NVRAM is insufficient reduce the number
+    // of stations stored."
+    for (int attempts = 0; attempts < kMaxStations; attempts++) {
+        if (tryPersist(idx, name, url)) {
+            s_ovName[idx] = name;
+            s_ovUrl[idx]  = url;
+            return true;
+        }
+        int drop = -1;
+        for (int i = kMaxStations - 1; i >= 0; i--) {
+            if (i == idx) continue;
+            if (s_ovName[i].length() || s_ovUrl[i].length()) { drop = i; break; }
+        }
+        if (drop < 0) return false;
+        storageRemove("stations", nvKeyName(drop).c_str());
+        storageRemove("stations", nvKeyUrl(drop).c_str());
+        s_ovName[drop] = "";
+        s_ovUrl[drop]  = "";
+    }
+    return false;
+}
+
+void stationsResetSlot(int idx) {
+    if (idx < 0 || idx >= kMaxStations) return;
+    storageRemove("stations", nvKeyName(idx).c_str());
+    storageRemove("stations", nvKeyUrl(idx).c_str());
+    s_ovName[idx] = "";
+    s_ovUrl[idx]  = "";
+}
+
+void stationsResetAllOverrides() {
+    for (int i = 0; i < kMaxStations; i++) stationsResetSlot(i);
 }
 
 void stationsUseDefaults() {

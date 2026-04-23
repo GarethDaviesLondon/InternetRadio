@@ -111,6 +111,9 @@ void setup() {
     if (storageSdMount()) {
         stationsLoadFromSd();
     }
+    // NVS per-slot overrides (set via the web modal or CLI 'station edit')
+    // are applied last so they win over SD / preset name+URL.
+    stationsApplyOverrides();
 
     audioCodecInit();
     audioPlayMorseR();   // dot-dash-dot self-test before Audio lib grabs I2S 0
