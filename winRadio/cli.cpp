@@ -9,6 +9,7 @@
 #include "power.h"
 #include "provision.h"
 #include "display.h"
+#include "log.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -116,7 +117,10 @@ static void cmdHelp() {
     outln(F("  sd ls <path>           List a directory"));
     outln(F("  sd reload              Re-read stations.csv + theme.ini"));
     outln();
+    outln(F("  log                    Show all log flags"));
     outln(F("  log on | off           Stream audio library events to serial"));
+    outln(F("  log verbose on | off   Enable [DEBUG] lines in the log stream"));
+    outln(F("  log sd on | off        Mirror log to /log.txt on SD (rotated)"));
     outln(F("  reboot, r              Restart the device"));
     outln(F("  sleep                  Deep sleep (wake via left button)"));
     outln();
@@ -474,10 +478,31 @@ static void dispatch(const String &raw) {
     else if (eqi(cmd, "reconnect"))                                          cmdReconnect();
     else if (eqi(cmd, "sd"))                                                 cmdSd(arg);
     else if (eqi(cmd, "log")) {
-        if (arg.length() == 0) { Serial.print(F("log: ")); outln(audioLogEnabled() ? "on" : "off"); }
-        else if (eqi(arg, "on"))  { audioSetLogEnabled(true);  outln(F("log: on"));  }
-        else if (eqi(arg, "off")) { audioSetLogEnabled(false); outln(F("log: off")); }
-        else                        outln(F("Usage: log [on|off]"));
+        String sub, rest;
+        splitArg(arg, sub, rest);
+        if (sub.length() == 0) {
+            Serial.printf("log: audio=%s  verbose=%s  sd=%s\r\n",
+                          audioLogEnabled() ? "on" : "off",
+                          logVerbose()      ? "on" : "off",
+                          logSdEnabled()    ? "on" : "off");
+        } else if (eqi(sub, "on"))       { audioSetLogEnabled(true);  outln(F("log audio: on")); }
+        else if (eqi(sub, "off"))        { audioSetLogEnabled(false); outln(F("log audio: off")); }
+        else if (eqi(sub, "verbose")) {
+            if (rest.length() == 0)        { Serial.print(F("log verbose: ")); outln(logVerbose() ? "on" : "off"); }
+            else if (eqi(rest, "on"))      { logSetVerbose(true);  outln(F("log verbose: on")); }
+            else if (eqi(rest, "off"))     { logSetVerbose(false); outln(F("log verbose: off")); }
+            else                             outln(F("Usage: log verbose [on|off]"));
+        }
+        else if (eqi(sub, "sd")) {
+            if (rest.length() == 0 || eqi(rest, "status")) {
+                Serial.print(F("log sd: ")); outln(logSdEnabled() ? "on" : "off");
+            } else if (eqi(rest, "on")) {
+                outln(logSdBegin() ? "log sd: on" : "log sd: FAILED (SD not mounted?)");
+            } else if (eqi(rest, "off")) {
+                logSdEnd(); outln(F("log sd: off"));
+            } else outln(F("Usage: log sd [on|off|status]"));
+        }
+        else outln(F("Usage: log [on|off|verbose on|off|sd on|off]"));
     }
     else if (eqi(cmd, "reboot") || eqi(cmd, "r")) { outln(F("Rebooting...")); delay(100); ESP.restart(); }
     else if (eqi(cmd, "sleep"))                   { outln(F("Sleeping..."));  delay(100); powerDeepSleep(); }
