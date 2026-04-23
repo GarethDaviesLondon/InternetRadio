@@ -1,19 +1,73 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-1. CLI commands should be case insesitive. Operands (data) should be case sensitive.
-2. I don't see the wifi hotspot from my phone (Pixel 8 from Google running latest android) is 
-  this a frequency issue? I see other Wifi nodes around me. Would like to connect to my
-  phone please.
-3. Sleep doesn't work at the moment, before wifi connection. Is that because it's not connected?
-   In any case I need to be able to "turn it off" even when it hasn't connected.
-4. Dimming of the screen should also work before connecting to the wifi, for same reasons.
 
-5. Unable to test many of the other features as I cannot connect at the moment (due to phone hotspot issue)
+== Changes made in this round (23-4-2026) =======================================
 
-Please update and document changes in code and in this file.
+  1. CLI commands + subcommands are now case-insensitive.
+     - Top-level commands already used eqi() (case-insensitive). The bug
+       was in the subcommand dispatch: `arg.startsWith("add")` and
+       friends were case-sensitive, so `wifi ADD foo` or `SD reload`
+       silently failed.
+     - Added splitArg(arg, first, rest) in cli.cpp so every subcommand
+       gets an eqi() match. Remainders (SSIDs, URLs, paths, passwords)
+       stay case-preserving, as required.
+     - Added `wifi rm` / `wifi del` as aliases for `wifi remove`, and
+       `wifi mv` for `wifi move`. `wifi show` now aliases `wifi list`.
+
+  2. Pixel hotspot STA-side fixes.
+     - I misread this as an AP issue at first; the radio is the STA
+       trying to join the phone's hotspot, not the other way around.
+       Three firmware-side fixes applied:
+         (a) Regulatory domain. WiFi.begin() defaults to US channels
+             1..11; Pixel hotspots often pick ch 12 or 13. netBegin()
+             now calls esp_wifi_set_country() with the ITU "01" world
+             code (schan=1, nchan=13) so the full 2.4 GHz band is
+             visible.
+         (b) PMF / WPA3. Pixel 8 hotspots frequently offer WPA3-Personal
+             which requires Protected Management Frames. STA is now
+             tagged pmf_cfg.capable = true so we can associate with
+             WPA3/PMF networks (and still with WPA2).
+         (c) Scan covers more APs. netScanNow() now does an active scan
+             with showHidden=true and a 300 ms per-channel dwell, so
+             slow-beacon / probe-reply APs show up too.
+     - NOT fixable in firmware: Pixel hotspot on 5 GHz. ESP32-S3 is
+       2.4 GHz only. To help the user, the LCD scan screen now shows a
+       "Phone hotspot tips" block when the scan is empty, prompting:
+         - band: 2.4 GHz (not 5)
+         - security: WPA2 or WPA2/3 (not WPA3-only)
+         - enable 'Extend compatibility' if the phone offers it
+     - If you still can't see the SSID after these fixes, the most
+       likely remaining cause is the phone's band setting. Pixel 8:
+       Settings -> Network & internet -> Hotspot & tethering -> Wi-Fi
+       hotspot -> AP Band -> 2.4 GHz preferred.
+
+  3. Deep sleep before WiFi now works.
+     - The blocking waits in setup() (the 4 s scan review window,
+       cliWaitForNewNetwork's idle loop, and the per-attempt abort poll
+       inside netConnect) never called inputPoll(), so the Left-button
+       sleep request was ignored until loop() started.
+     - New bootTick() in winRadio.ino runs the things that must work
+       early: displayBacklightTick(), inputRebootCombo(), inputPoll()
+       with the SLEEP event handled. Plumbed into every blocking wait
+       via a tickCb parameter on cliWaitForNewNetwork() and a bootTick
+       call at the top of netAbortOnRightButton.
+     - bootTick never returns if SLEEP or reboot fires (the underlying
+       calls don't return), which is exactly the "off button always
+       works" behaviour the user asked for.
+
+  4. Backlight dimming also works before WiFi.
+     - Same bootTick() helper drives displayBacklightTick. Any input
+     event during setup calls displayNoteActivity(), so even the first
+     button press after power-on wakes the panel to full brightness.
+
+  5. Untested features.
+     - The user noted many features couldn't be verified because the
+       phone hotspot wasn't visible. After the fixes above land, the
+       /stations CSV, theme.ini, mDNS, web UI, EQ sliders, fine volume,
+       last-joined mark, and mDNS heartbeat are all ready to exercise.
 
 
-== Changes made in the latest round (22/23-4-2026) ==============================
+== Changes made in earlier round (22/23-4-2026) =================================
 
   1. Deep sleep + L+R reboot now work.
      - SLEEP now fires on clean RELEASE of a Left-only press (was firing
