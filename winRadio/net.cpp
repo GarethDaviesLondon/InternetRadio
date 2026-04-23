@@ -56,15 +56,12 @@ void netBegin() {
     cc.policy       = WIFI_COUNTRY_POLICY_MANUAL;
     esp_wifi_set_country(&cc);
 
-    // Protected Management Frames: mark ourselves as capable (but not
-    // required) so WPA3 / WPA2-with-PMF APs -- such as the Pixel hotspot
-    // when "Hotspot security" is set to WPA3-Personal -- will let us
-    // associate. WPA2-only APs ignore the flag.
-    wifi_config_t sta = {};
-    esp_wifi_get_config(WIFI_IF_STA, &sta);
-    sta.sta.pmf_cfg.capable  = true;
-    sta.sta.pmf_cfg.required = false;
-    esp_wifi_set_config(WIFI_IF_STA, &sta);
+    // PMF (Protected Management Frames) is capable-by-default in
+    // arduino-esp32 v3.x, which is what WPA3 / Pixel hotspots want.
+    // A previous build reached into esp_wifi_get_config / set_config to
+    // flip it explicitly; that turned out to leave the STA in a state
+    // where scanNetworks() returned 0. Don't touch it -- the default is
+    // already right.
 }
 
 bool netConnect(bool (*abortCb)(),
@@ -124,6 +121,8 @@ int netScanNow() {
                   return a.rssi > b.rssi;
               });
     WiFi.scanDelete();
+    Serial.printf("net: scan found %d network(s) (raw=%d)\r\n",
+                  (int)s_scan.size(), n);
     return (int)s_scan.size();
 }
 

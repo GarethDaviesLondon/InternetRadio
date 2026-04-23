@@ -38,15 +38,20 @@ static void bootTick() {
     if (ev == INPUT_SLEEP) powerDeepSleep();   // doesn't return
     // NEXT / VOL events are ignored during boot: audio isn't running yet.
 
-    // Low-rate diagnostic print so "my buttons aren't doing anything"
-    // reports can confirm whether the pins are actually being read.
-    static uint32_t lastDbg = 0;
-    if (millis() - lastDbg > 2000) {
-        lastDbg = millis();
+    // Edge-triggered button diagnostic. Silent while nothing changes;
+    // prints one line each time any of L/M/R transitions. Lets the user
+    // confirm the GPIOs are actually seeing presses without flooding the
+    // serial log at idle.
+    static uint8_t lastMask = 0xff;
+    uint8_t mask = (inputLeftHeld()  ? 1 : 0)
+                 | (inputMidHeld()   ? 2 : 0)
+                 | (inputRightHeld() ? 4 : 0);
+    if (mask != lastMask) {
+        lastMask = mask;
         Serial.printf("boot: L=%d M=%d R=%d\r\n",
-                      inputLeftHeld() ? 1 : 0,
-                      inputMidHeld()  ? 1 : 0,
-                      inputRightHeld()? 1 : 0);
+                      (mask & 1) ? 1 : 0,
+                      (mask & 2) ? 1 : 0,
+                      (mask & 4) ? 1 : 0);
     }
 }
 
