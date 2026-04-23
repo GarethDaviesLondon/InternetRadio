@@ -44,6 +44,16 @@ int               netScanNow();
 int               netScanCount();
 const ScanResult *netScanResult(int idx);   // nullptr if out of range
 
+// ---- Diagnostics --------------------------------------------------------
+// Dump driver state (mode, MAC, status, SSID/BSSID/channel/RSSI, IP,
+// gateway, DNS, regulatory country/channel range, last disconnect reason)
+// to Serial. Called by the CLI `wifi diag`.
+void  netPrintDiag();
+
+// Human-readable names for the auth + wl_status + disconnect-reason enums.
+// Handy when other modules (cli, web) want to surface these.
+const char *netEncName(uint8_t enc);
+
 // ---- mDNS / discovery (stubs) -------------------------------------------
 void  netStartMdns(const char *hostname);
 void  netStopMdns();

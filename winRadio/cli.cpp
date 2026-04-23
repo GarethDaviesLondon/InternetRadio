@@ -105,6 +105,7 @@ static void cmdHelp() {
     outln(F("  wifi remove <n>        Remove saved network N"));
     outln(F("  wifi move <from> <to>  Reorder saved networks"));
     outln(F("  wifi clear             Erase ALL saved networks"));
+    outln(F("  wifi diag              Dump WiFi driver state + last reason code"));
     outln(F("  cancel                 Exit setup-mode and resume boot flow"));
     outln(F("  reconnect              Try saved networks again"));
     outln();
@@ -284,6 +285,11 @@ static void cmdWifiAdd(const String &presetSsid) {
         outln(F("Scan networks? [Y/n]"));
         String yn = readLineBlocking("> ", false); yn.trim(); yn.toLowerCase();
         if (yn.length() == 0 || yn.startsWith("y")) {
+            // Clean STA state before scanning. If we land here straight after
+            // a failed netConnect() the driver is still in mid-association
+            // teardown, which has been observed to yield 0 scan results.
+            WiFi.disconnect(false, true);
+            delay(200);
             int n = netScanNow();
             if (n == 0) { outln(F("No networks found. Enter SSID manually.")); }
             else {
@@ -438,6 +444,8 @@ static void dispatch(const String &raw) {
                                             cmdWifiRemove(rest);
         else if (eqi(sub, "move") || eqi(sub, "mv"))
                                             cmdWifiMove(rest);
+        else if (eqi(sub, "diag") || eqi(sub, "info") || eqi(sub, "status"))
+                                            netPrintDiag();
         else                                outln(F("Unknown wifi subcommand. Try 'help'."));
     }
     else if (eqi(cmd, "cancel") || eqi(cmd, "exit")) {
