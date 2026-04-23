@@ -9,6 +9,7 @@
 #include "storage.h"
 #include "net.h"
 #include "radio_audio.h"
+#include "stations.h"
 #include "display.h"
 #include "input.h"
 #include "power.h"
