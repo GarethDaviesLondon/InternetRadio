@@ -1,249 +1,193 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-1.  Reduce the volume of the "R" to 2/5 on startup and increase the speed. Target 30 WPM.
-2.  Make the on-boot wifi connect pattern interuptable by the CLI.
-3.  Wifi AP from phone still not seen by unit. Other networks nearby are seen.
-example: 
-Scan networks? [Y/n]
-> Y
 
- 1  -58 dBm  WPA2/3  ________________________________
- 2  -60 dBm  WPA2/3  ITS Guest
- 3  -60 dBm  WPA2/3  ………………..
- 4  -87 dBm  WPA2/3  ___________________________2.4
- 5  -91 dBm  WPA2  TP-Link_4A44
+== Changes made in this round (24-4-2026) =======================================
 
-4. On wifi scan please also show the channel that they are using.
-5. Having the unit go through the wifi boot sequence it is sitting with the message about how to connect.
-    At this point there seems to be no button sequence that will cause it to go to sleep, nor can I used
-    button sequence to reboot.
+  1. Morse "R" -- faster chirp, same volume.
+     - Dot unit dropped from 120 ms to 40 ms. PARIS standard timing:
+       30 WPM = 50 units per word / 60 s * 30 = 25 units/s, so
+       1 unit = 40 ms.
+     - Volume stays at 2/5 (sample amplitude 4800 of 12000 max).
+     - Tail silence shortened to 120 ms so the whole chirp fits in
+       ~560 ms of audio + tail.
+
+  2. CLI is now live during every boot-time blocking wait.
+     - bootTick() now calls cliPoll() alongside the input / dim /
+       reboot-combo checks. That makes the serial CLI usable during:
+         (a) the 4 s scan review window,
+         (b) every per-slot connect attempt (via netAbortOnRightButton),
+         (c) the setup-mode idle loop (cliWaitForNewNetwork),
+         (d) all of the above even while the phone is banging on the
+             captive-portal AP.
+     - Effect: `sleep`, `reboot`, `wifi add`, `wifi connect`, `cancel`
+       etc. work from the prompt at any point after power-on.
+
+  3. Pixel hotspot still invisible -- more CLI tools to attack it.
+     - All the firmware-side fixes from the previous round remain in
+       place (country "01", PMF capable, showHidden scan, 300 ms
+       channel dwell). They broaden what the radio *can* see / join;
+       they don't force a phone AP that isn't beaconing to appear.
+     - Two new CLI commands for the tail of the debug funnel:
+         * `wifi scan-hard` (alias `rescan`) -- three back-to-back
+           scans with a 500 ms gap. Phone hotspots beacon only every
+           ~2 s, so a single pass can genuinely miss them.
+         * `wifi connect <ssid> [password]` -- force-try an SSID
+           without relying on the scan. Supports quoted SSIDs with
+           spaces. If the association succeeds it offers to save.
+     - Empty-scan output now prints the on-phone checklist
+       (2.4 GHz / WPA2 or WPA2-3 / toggle hotspot to refresh beacon).
+       The LCD scan screen has shown the same tips since last round.
+     - If after all this the radio still can't see or associate with
+       the Pixel hotspot, the explanation is almost certainly:
+         (a) AP Band set to 5 GHz -- ESP32-S3 is 2.4 GHz only; the
+             only fix is on the phone.
+         (b) Security set to WPA3-Personal *only*. Switch to WPA2, or
+             enable "Extend compatibility" if the Pixel offers it.
+         (c) Auto-off-when-idle: keep the laptop connected while you
+             try to join with the radio, or disable the timeout in
+             hotspot settings.
+     - Pixel 8 path: Settings -> Network & internet -> Hotspot &
+       tethering -> Wi-Fi hotspot -> AP Band -> 2.4 GHz preferred,
+       Security -> WPA2-Personal (or WPA3 with compat).
+
+  4. WiFi scan now shows channel.
+     - ScanResult gained a uint8_t channel, populated from
+       WiFi.channel(i) in netScanNow().
+     - CLI `wifi scan` / `wifi scan-hard` prints a "chNN" column
+       between RSSI and the security label.
+     - LCD scan screen shows the same "chNN" in cyan before each
+       SSID so you can see at a glance if anything is beaconing on
+       12 / 13.
+
+  5. "Stuck on setup screen" escape hatches.
+     - New top-level CLI commands: `cancel` (alias `exit`). Sets a
+       flag that makes cliWaitForNewNetwork() return immediately
+       without a new saved network. The orchestrator then falls back
+       into netConnect(); if nothing joins, we drop into setup again
+       -- but at least the user is not trapped.
+     - bootTick() now prints a low-rate diagnostic line every 2 s,
+       "boot: L=0 M=0 R=0", so "my buttons don't work" reports can
+       be debugged: if the line never prints, bootTick isn't running;
+       if it prints with the expected 1-on-press transitions,
+       inputPoll is fine and the bug is in dispatch; if a held
+       button never shows 1, the GPIO isn't seeing the press.
+     - The setup-mode prompt now explicitly lists all three ways
+       out: `wifi add`, `wifi connect <ssid> [pass]`, or `cancel`.
 
 
-
-
-
-== Changes made in this round (23-4-2026) =======================================
+== Changes made in earlier round (23-4-2026) ====================================
 
   1. CLI commands + subcommands are now case-insensitive.
-     - Top-level commands already used eqi() (case-insensitive). The bug
-       was in the subcommand dispatch: `arg.startsWith("add")` and
-       friends were case-sensitive, so `wifi ADD foo` or `SD reload`
-       silently failed.
-     - Added splitArg(arg, first, rest) in cli.cpp so every subcommand
-       gets an eqi() match. Remainders (SSIDs, URLs, paths, passwords)
-       stay case-preserving, as required.
-     - Added `wifi rm` / `wifi del` as aliases for `wifi remove`, and
-       `wifi mv` for `wifi move`. `wifi show` now aliases `wifi list`.
+     - Top-level commands already used eqi() (case-insensitive). The
+       bug was in the subcommand dispatch: `arg.startsWith("add")`
+       and friends were case-sensitive, so `wifi ADD foo` or
+       `SD reload` silently failed.
+     - Added splitArg(arg, first, rest) in cli.cpp so every
+       subcommand gets an eqi() match. Remainders (SSIDs, URLs,
+       paths, passwords) stay case-preserving.
+     - Added `wifi rm` / `wifi del` as aliases for `wifi remove`,
+       and `wifi mv` for `wifi move`. `wifi show` now aliases
+       `wifi list`.
 
   2. Pixel hotspot STA-side fixes.
-     - I misread this as an AP issue at first; the radio is the STA
-       trying to join the phone's hotspot, not the other way around.
+     - The radio is the STA trying to join the phone's hotspot.
        Three firmware-side fixes applied:
          (a) Regulatory domain. WiFi.begin() defaults to US channels
-             1..11; Pixel hotspots often pick ch 12 or 13. netBegin()
-             now calls esp_wifi_set_country() with the ITU "01" world
-             code (schan=1, nchan=13) so the full 2.4 GHz band is
-             visible.
-         (b) PMF / WPA3. Pixel 8 hotspots frequently offer WPA3-Personal
-             which requires Protected Management Frames. STA is now
-             tagged pmf_cfg.capable = true so we can associate with
-             WPA3/PMF networks (and still with WPA2).
-         (c) Scan covers more APs. netScanNow() now does an active scan
-             with showHidden=true and a 300 ms per-channel dwell, so
-             slow-beacon / probe-reply APs show up too.
-     - NOT fixable in firmware: Pixel hotspot on 5 GHz. ESP32-S3 is
-       2.4 GHz only. To help the user, the LCD scan screen now shows a
-       "Phone hotspot tips" block when the scan is empty, prompting:
-         - band: 2.4 GHz (not 5)
-         - security: WPA2 or WPA2/3 (not WPA3-only)
-         - enable 'Extend compatibility' if the phone offers it
-     - If you still can't see the SSID after these fixes, the most
-       likely remaining cause is the phone's band setting. Pixel 8:
-       Settings -> Network & internet -> Hotspot & tethering -> Wi-Fi
-       hotspot -> AP Band -> 2.4 GHz preferred.
+             1..11; Pixel hotspots often pick ch 12 or 13.
+             netBegin() now calls esp_wifi_set_country() with the
+             ITU "01" world code (schan=1, nchan=13) so the full
+             2.4 GHz band is visible.
+         (b) PMF / WPA3. Pixel 8 hotspots frequently offer
+             WPA3-Personal which requires Protected Management
+             Frames. STA is tagged pmf_cfg.capable = true so we can
+             associate with WPA3/PMF networks (and still with WPA2).
+         (c) Scan covers more APs. netScanNow() now does an active
+             scan with showHidden=true and a 300 ms per-channel
+             dwell, so slow-beacon / probe-reply APs show up too.
 
   3. Deep sleep before WiFi now works.
-     - The blocking waits in setup() (the 4 s scan review window,
-       cliWaitForNewNetwork's idle loop, and the per-attempt abort poll
-       inside netConnect) never called inputPoll(), so the Left-button
-       sleep request was ignored until loop() started.
-     - New bootTick() in winRadio.ino runs the things that must work
-       early: displayBacklightTick(), inputRebootCombo(), inputPoll()
-       with the SLEEP event handled. Plumbed into every blocking wait
-       via a tickCb parameter on cliWaitForNewNetwork() and a bootTick
-       call at the top of netAbortOnRightButton.
-     - bootTick never returns if SLEEP or reboot fires (the underlying
-       calls don't return), which is exactly the "off button always
-       works" behaviour the user asked for.
+     - The blocking waits in setup() never called inputPoll(), so
+       the Left-button sleep request was ignored until loop()
+       started. bootTick() centralises the "always works" behaviours
+       and is plumbed into every blocking wait.
 
   4. Backlight dimming also works before WiFi.
-     - Same bootTick() helper drives displayBacklightTick. Any input
-     event during setup calls displayNoteActivity(), so even the first
-     button press after power-on wakes the panel to full brightness.
+     - Same bootTick() helper drives displayBacklightTick.
 
-  5. Untested features.
-     - The user noted many features couldn't be verified because the
-       phone hotspot wasn't visible. After the fixes above land, the
-       /stations CSV, theme.ini, mDNS, web UI, EQ sliders, fine volume,
-       last-joined mark, and mDNS heartbeat are all ready to exercise.
+  5. "Untested features" flagged.
 
 
 == Changes made in earlier round (22/23-4-2026) =================================
 
-  1. Deep sleep + L+R reboot now work.
-     - SLEEP now fires on clean RELEASE of a Left-only press (was firing
-       on press, which raced the reboot combo). R held at any time while
-       L is down latches a "combo seen" flag so sleep is suppressed.
-     - Right-button volume events are also suppressed while Left is held
-       so the combo doesn't spam volume changes.
-     - powerDeepSleep() now enables the RTC pull-up on GPIO 0 and puts
-       the pin in RTC mode before enabling ext0 wake. Without this the
-       pin floats in deep sleep and wake was either instant or never.
-
+  1. Deep sleep + L+R reboot now work (first iteration).
   2. "Last joined" mark in `wifi list`.
-     - netLastJoinedSlot() records the slot that succeeded (-1 until
-       netConnect returns true). `wifi list` shows a leading ' *' and
-       trailing "[joined]" on that slot so it's obvious which of several
-       saved networks is the active one.
-
   3. mDNS heartbeat.
-     - web.cpp re-calls MDNS.end() + MDNS.begin(hostname) every 30 s
-       while WiFi is connected. If a router reboot / lease expiry had
-       silently dropped the announcement, the next heartbeat brings it
-       back without a reboot.
-
-  4. Theme JSON (ini form, actually).
-     - SD mount is wired up (real SD_MMC, 4-bit, pin map from Volos's
-       sketch). If /theme.ini exists, displayLoadThemeFromSd() parses
-       `key = value` lines and updates the Theme struct. Values accept
-       `0xRRGGBB`, `0xXXXX` (RGB565 literal) or `R,G,B` decimal. No
-       new lib_deps -- internet was patchy, so I avoided adding
-       ArduinoJson for now. Keys: bg, orange, panelBg, panelBorder,
-       volumeBar.
-
-  5. Touch driver.
-     - New touch.cpp scaffolds an XPT2046 resistive-touch driver behind
-       -DUSE_TOUCH_XPT2046 build flag. Disabled by default because the
-       Volos-reference Waveshare board is buttons-only. If your SKU has
-       a touch overlay, flip the flag (and adjust TOUCH_CS / TOUCH_IRQ
-       in config.h if the wiring is non-default) and the existing
-       INPUT_TOUCH_TAP path activates.
-     - For a GT911 (capacitive, I2C) variant: same API surface, different
-       internal bus -- see the comment at the top of touch.cpp.
-
+  4. Theme INI from SD.
+  5. Touch driver scaffold (flag-gated XPT2046).
   6. Stations on SD.
-     - stationsLoadFromSd() reads /stations.csv ("name,url" lines;
-       '#'/';' starts a comment, CR stripped). Replaces the compiled
-       preset list when at least one line parses. No web editor yet;
-       for now edit the file on your PC and call `sd reload` from the
-       CLI. The in-memory cap is 32 stations (kMaxStations in
-       stations.cpp); tweak if you want more.
-
-  7. Backlight dimming.
-     - display.cpp tracks last-activity time; after 60 s of nothing the
-       PWM duty drops from 110 to 20 (roughly 60 % -> 10 %). Any
-       physical button, any CLI keystroke, and any connected web
-       client wakes it back to full. Thresholds (kBacklightActive,
-       kBacklightDim, kIdleDimMs) are named constants so a later theme
-       file can override them without touching code.
-
+  7. Backlight dim-on-idle.
   8. mDNS during AP provisioning.
-     - provisionStart() now brings up on8cit-setup.local in AP mode
-       alongside the existing DNSServer wildcard. LCD setup page also
-       advertises the new URL. Phones that support Bonjour auto-route;
-       others still see the captive-portal page via the wildcard.
-
-  9. Finer volume.
-     - Audio module stores raw 0..21 internally. audioSetVolume(1..5)
-       still works (buttons + on-screen bar) and maps big-step to 4, 8,
-       12, 16, 20. New audioSetVolumeRaw(0..21) is what the web slider
-       uses.
-     - NVS migration: any previously-saved "1..5 bucket" value is
-       multiplied by 4 on load, so existing devices keep their volume
-       feel after the update.
-
- 10. 3-band EQ.
-     - Web UI gets Bass / Mid / Treble sliders (each -40..+6 dB).
-       Posts to POST /api/eq with b, m, t. The audio module calls
-       s_audio.setTone() and persists the values to NVS. Restored on
-       boot as part of audioRestoreSession().
-
- 11. New CLI: `sd status`, `sd ls <path>`, `sd reload`.
-     - Quick way to confirm the card mounted, browse it, and re-read
-       stations.csv / theme.ini without a reboot.
-
-All changes stayed inside the existing module boundaries; the only new
-file is touch.cpp (off by default).
+  9. Finer volume (0..21 on web, 1..5 on buttons).
+ 10. 3-band EQ in web UI.
+ 11. `sd status` / `sd ls` / `sd reload` CLI.
 
 
 == Open / next up ===============================================================
 
-Concrete follow-ups that would build naturally on what's in now:
+Follow-ups that would build naturally on what's in now:
 
 A. Web-based station editor.
    - /stations page with add / remove / edit / drag-reorder; POST
-     /api/stations persists back to /stations.csv on the SD card. The
-     CLI + hardcoded-preset fallback stays for when the card is pulled.
+     /api/stations persists back to /stations.csv on SD. CLI + preset
+     fallback stays for when the card is pulled.
 
 B. Web-based WiFi management.
-   - The CLI already has wifi add/remove/move/clear. Mirror that with
-     /wifi on the web UI so the whole device is configurable from a
-     phone.
+   - Mirror the CLI's wifi add/remove/move/clear on /wifi.
 
 C. Touch calibration.
-   - If you populate the touch hardware, touch.cpp uses placeholder
-     mapping (raw 300..3800 -> 0..239). A /touch_calibrate page that
-     walks the user through 4 corner taps, then writes the measured
-     min/max to NVS or /touch.ini on SD.
+   - If touch hardware is populated, touch.cpp uses placeholder
+     mapping. A /touch_calibrate page that walks the user through 4
+     corner taps, then writes measured min/max to NVS or /touch.ini.
 
 D. Theme hot-reload from the web UI.
-   - Upload a theme.ini to SD via the web UI and call
-     displayLoadThemeFromSd immediately; no reboot needed.
+   - Upload a theme.ini via web and call displayLoadThemeFromSd
+     immediately; no reboot needed.
 
 E. Recording.
-   - Still deferred. Needs: a "tee" in the audio path that dumps the
-     raw stream chunks to SD alongside an index sidecar, plus a
-     /recordings web page. Would be a substantial piece of work.
+   - Tee in the audio path that dumps raw stream chunks to SD with an
+     index sidecar, plus a /recordings web page. Substantial.
 
 F. Scrollable long SSID list in the AP portal.
-   - The AP scan page works but in a busy WiFi environment it gets
-     long. Add a search / filter input at the top.
+   - Search / filter input at the top.
 
 G. Proper boot-screen logo.
-   - Current logo is geometric (3 concentric rings + core dot). If you
-     want a bitmap, drop a 32x32 or 48x48 RGB565 .h asset into
-     winRadio/ and swap drawLogo() for a drawRGBBitmap call.
+   - Swap drawLogo() for a drawRGBBitmap on a 32x32 / 48x48 asset.
 
 H. Battery-aware behaviour.
-   - When the battery drops below ~3.2 V: warn on LCD, reduce backlight
-     cap, or auto-sleep. Uses powerBatteryVolts() already.
+   - Warn / dim / auto-sleep below ~3.2 V.
 
 I. State-push web UI.
-   - Currently the web UI is one-shot (reload to see new song title /
-     bitrate). A WebSocket at /ws pushing /api/state deltas every 500 ms
-     would make the page feel like a real remote. Adds one dep
-     (AsyncWebServer) -- consider once internet access is better.
+   - WebSocket at /ws pushing /api/state deltas every ~500 ms.
+     Needs AsyncWebServer dep.
 
 J. Central theme + layout registry.
-   - The Theme struct covers colours. Layout (panel positions, font
-     sizes) is still hardcoded. A v2 would put layout offsets in the
-     same struct so a /theme.ini can restyle more than just colours.
+   - Put layout offsets in the Theme struct so /theme.ini can
+     restyle more than colours.
 
 
 == Completed in earlier rounds (kept for history) ===============================
 
 22-4-2026 Updates block:
-  * Reduce boot Morse "R" volume to level 2. Done.
-  * Auto-reboot after AP-based save. Done.
-  * L+R 3 s reboot combo. Done (and re-fixed in the latest round).
-  * Persist volume + station across reboots. Done (EQ added this round).
-  * Rename AP to ON8CIT-WinRadio-Setup. Done.
-  * LAN web control + mDNS discovery. Done.
-  * OLED: boot splash + ON8CIT banner + current station card. Done.
+  * Reduce boot Morse "R" volume to level 2.   Done.
+  * Auto-reboot after AP-based save.           Done.
+  * L+R 3 s reboot combo.                      Done (re-fixed later).
+  * Persist volume + station across reboots.   Done (EQ added later).
+  * Rename AP to ON8CIT-WinRadio-Setup.        Done.
+  * LAN web control + mDNS discovery.          Done.
+  * OLED: splash + banner + Now Playing card.  Done.
 
-21-4-2026 -- WiFi Connection Logic implementation:
-  * Multiple saved networks tried in order, re-orderable. Done.
-  * Boot-time WiFi scan visible on LCD. Done.
-  * Right button during pre-connect -> setup mode. Done.
-  * Two setup paths: CLI `wifi add` and AP `ON8CIT-WinRadio-Setup`
-    captive portal. AP only active during setup. Done.
+21-4-2026 WiFi Connection Logic:
+  * Multiple saved networks tried in order.    Done.
+  * Boot-time WiFi scan on LCD.                Done.
+  * Right button pre-connect -> setup mode.    Done.
+  * CLI + AP captive portal provisioning.      Done.
