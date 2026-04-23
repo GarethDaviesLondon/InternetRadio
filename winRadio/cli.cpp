@@ -65,6 +65,20 @@ static const char *encStr(uint8_t e) {
     }
 }
 
+// ---- parse helpers (used from commands + dispatcher) --------------------
+
+static bool eqi(const String &a, const char *b) { return a.equalsIgnoreCase(b); }
+
+// Split an arg string "subcmd rest of line" into first token (used as a
+// subcommand, matched case-insensitively by the caller) and the untouched
+// remainder. The remainder preserves case -- SSIDs, URLs, paths, etc. are
+// data and must not be folded.
+static void splitArg(const String &arg, String &first, String &rest) {
+    int sp = arg.indexOf(' ');
+    if (sp < 0) { first = arg; rest = ""; }
+    else { first = arg.substring(0, sp); rest = arg.substring(sp + 1); rest.trim(); }
+}
+
 // ---- commands ------------------------------------------------------------
 
 static void cmdHelp() {
@@ -337,18 +351,6 @@ static void cmdSd(const String &arg) {
 }
 
 // ---- dispatcher ----------------------------------------------------------
-
-static bool eqi(const String &a, const char *b) { return a.equalsIgnoreCase(b); }
-
-// Split an arg string "subcmd rest of line" into first token (used as a
-// subcommand, matched case-insensitively by the caller) and the untouched
-// remainder. The remainder preserves case -- SSIDs, URLs, paths, etc. are
-// data and must not be folded.
-static void splitArg(const String &arg, String &first, String &rest) {
-    int sp = arg.indexOf(' ');
-    if (sp < 0) { first = arg; rest = ""; }
-    else { first = arg.substring(0, sp); rest = arg.substring(sp + 1); rest.trim(); }
-}
 
 static void dispatch(const String &raw) {
     String line = raw; line.trim();
