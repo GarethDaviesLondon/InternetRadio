@@ -283,14 +283,18 @@ void displayShowBootSplash(const char *status) {
     drawBrandingBanner(0, /*large=*/true);
     s_gfx->setTextSize(1);
     s_gfx->setTextColor(RGB565_WHITE);
-    s_gfx->setCursor(2, 180);
+    s_gfx->setCursor(2, 174);
     s_gfx->print("Firmware ");
     s_gfx->print(FIRMWARE_VERSION);
     if (status && *status) {
-        s_gfx->setCursor(2, 200);
+        s_gfx->setCursor(2, 192);
         s_gfx->setTextColor(RGB565_CYAN);
         s_gfx->print(status);
     }
+    // Attribution at the bottom of the splash.
+    s_gfx->setTextColor(0x8C71 /* muted grey */);
+    s_gfx->setCursor(2, 222);
+    s_gfx->print("By Gareth Davies, 2026");
 }
 
 void displayShowWifiScan(const char *footer, int highlightIdx) {
@@ -461,36 +465,101 @@ static void blitSprite(LGFX_Sprite &sp, int dx, int dy, int w, int h) {
     s_gfx->draw16bitRGBBitmap(dx, dy, buf, w, h);
 }
 
+// State cached across calls so we can skip redraws in the static (non-
+// scrolling) case -- otherwise the 30 ms tick redraws identical pixels
+// and produces a visible flicker on the LCD.
+static String s_lastSong;
+static int    s_lastSongPos = 0x7FFFFFFF;
+static String s_lastOnAir;
+static int    s_lastOnAirPos = 0x7FFFFFFF;
+static DisplayMode s_lastMode = (DisplayMode)-1;
+
 void displayDrawScroll() {
-    // Song-title ticker (always runs).
-    s_songPosition--;
-    if (s_songPosition < -220) s_songPosition = kSongScrollW;
-    s_sprite2.fillSprite(TFT_BLACK);
-    s_sprite2.drawString(audioSongPlaying(), s_songPosition, 2);
-    blitSprite(s_sprite2, kSongScrollX, kSongScrollY, kSongScrollW, kSongScrollH);
+    const uint16_t bg = g_theme.bg;
+    const char *song = audioSongPlaying();
+    String sSong = song ? song : "";
 
-    // On-air station-name ticker. Only in the NP mode; big-clock mode
-    // skips this strip entirely.
-    if (s_mode != DM_NOW_PLAYING) return;
-    const char *icy = audioCurStation();
-    if (!icy || !*icy) return;
-
-    String s = icy;
-    // Decide if scrolling is needed. Built-in LGFX textWidth at font 2
-    // is ~14px per char; kOnAirScrollW = 202 -> ~14 chars fit static.
-    bool scroll = ((int)s.length() * 14) > kOnAirScrollW;
-    s_sprite2.fillSprite(TFT_BLACK);
-    if (scroll) {
-        s_onAirPosition--;
-        if (s_onAirPosition < -(int)(s.length() * 14)) s_onAirPosition = kOnAirScrollW;
-        s_sprite2.drawString(s, s_onAirPosition, 2);
-    } else {
-        // Static centre.
-        int x = (kOnAirScrollW - (int)s.length() * 14) / 2;
-        if (x < 0) x = 0;
-        s_sprite2.drawString(s, x, 2);
+    if (s_mode == DM_BIG_CLOCK) {
+        // Clock mode: full-width ticker painted directly on the panel
+        // with the matching bg colour (no sprite -- sprite2 is 202 wide).
+        bool songScroll = ((int)sSong.length() * 14) > 240;
+        if (songScroll) {
+            s_songPosition--;
+            if (s_songPosition < -(int)(sSong.length() * 14)) s_songPosition = 240;
+        } else {
+            // Static -- centre and only redraw on state change.
+            int x = (240 - (int)sSong.length() * 14) / 2;
+            if (x < 0) x = 0;
+            s_songPosition = x;
+        }
+        if (songScroll || sSong != s_lastSong || s_lastMode != s_mode) {
+            s_gfx->fillRect(0, kSongScrollY, 240, kSongScrollH, bg);
+            s_gfx->setTextColor(TFT_YELLOW, bg);
+            s_gfx->drawString(sSong, s_songPosition, kSongScrollY, 2);
+            s_lastSong = sSong;
+            s_lastSongPos = s_songPosition;
+            s_lastMode = s_mode;
+        }
+        return;
     }
-    blitSprite(s_sprite2, kOnAirScrollX, kOnAirScrollY, kOnAirScrollW, kOnAirScrollH);
+
+    // Now-playing mode: both the song title and the on-air station name
+    // get sprite-blitted strips. Redraw both only when something
+    // actually changed.
+    if (s_lastMode != s_mode) {
+        // Mode just flipped back into NP; force both strips to repaint.
+        s_lastSong = s_lastOnAir = "";
+        s_lastSongPos = s_lastOnAirPos = 0x7FFFFFFF;
+        s_lastMode = s_mode;
+    }
+
+    // Song title strip (always one line, scrolls if long).
+    bool songScroll = ((int)sSong.length() * 14) > kSongScrollW;
+    if (songScroll) {
+        s_songPosition--;
+        if (s_songPosition < -(int)(sSong.length() * 14)) s_songPosition = kSongScrollW;
+    } else {
+        int x = (kSongScrollW - (int)sSong.length() * 14) / 2;
+        if (x < 0) x = 0;
+        s_songPosition = x;
+    }
+    if (songScroll || sSong != s_lastSong || s_songPosition != s_lastSongPos) {
+        s_sprite2.fillSprite(bg);
+        s_sprite2.setTextColor(TFT_YELLOW, bg);
+        s_sprite2.drawString(sSong, s_songPosition, 0);
+        blitSprite(s_sprite2, kSongScrollX, kSongScrollY, kSongScrollW, kSongScrollH);
+        s_lastSong = sSong;
+        s_lastSongPos = s_songPosition;
+    }
+
+    // On-air station name (only when ICY metadata is available).
+    const char *icy = audioCurStation();
+    if (!icy || !*icy) {
+        if (s_lastOnAir.length()) {
+            s_sprite2.fillSprite(bg);
+            blitSprite(s_sprite2, kOnAirScrollX, kOnAirScrollY, kOnAirScrollW, kOnAirScrollH);
+            s_lastOnAir = "";
+        }
+        return;
+    }
+    String sIcy = icy;
+    bool onAirScroll = ((int)sIcy.length() * 14) > kOnAirScrollW;
+    if (onAirScroll) {
+        s_onAirPosition--;
+        if (s_onAirPosition < -(int)(sIcy.length() * 14)) s_onAirPosition = kOnAirScrollW;
+    } else {
+        int x = (kOnAirScrollW - (int)sIcy.length() * 14) / 2;
+        if (x < 0) x = 0;
+        s_onAirPosition = x;
+    }
+    if (onAirScroll || sIcy != s_lastOnAir || s_onAirPosition != s_lastOnAirPos) {
+        s_sprite2.fillSprite(bg);
+        s_sprite2.setTextColor(TFT_CYAN, bg);
+        s_sprite2.drawString(sIcy, s_onAirPosition, 0);
+        blitSprite(s_sprite2, kOnAirScrollX, kOnAirScrollY, kOnAirScrollW, kOnAirScrollH);
+        s_lastOnAir = sIcy;
+        s_lastOnAirPos = s_onAirPosition;
+    }
 }
 
 // Draws only the banner + footer (without clearing the middle). Used by
@@ -546,53 +615,35 @@ static void drawNowPlaying() {
     const uint16_t orange = g_theme.orange;
     auto &g = g_theme.grays;
 
-    // ---- Now-playing card (with 1-pixel border + 3 px gap below clock).
+    // ---- Now-playing card (1 px border + 3 px gap below clock divider).
     // Clock divider is at y=46, gap of 3, card starts at 50.
     const int cpX = 4, cpY = 50, cpW = 216, cpH = 122;
-    s_sprite.fillRect(cpX, cpY, cpW, cpH, TFT_BLACK);
-    s_sprite.drawRect(cpX, cpY, cpW, cpH, light);   // 1 px border
-
-    s_sprite.setTextColor(orange, TFT_BLACK);
-    s_sprite.drawString("NOW PLAYING", cpX + 8, cpY + 4, 1);
-
-    // Play / Pause indicator at the top-right of the card (also a touch
-    // placeholder: the whole right edge could be tapped later).
-    bool paused = audioIsPaused();
-    int ix = cpX + cpW - 22, iy = cpY + 4;
-    if (paused) {
-        // "||"
-        s_sprite.fillRect(ix,     iy, 4, 10, TFT_YELLOW);
-        s_sprite.fillRect(ix + 6, iy, 4, 10, TFT_YELLOW);
-    } else {
-        // ">"
-        s_sprite.fillTriangle(ix, iy, ix, iy + 10, ix + 10, iy + 5, TFT_GREEN);
-    }
+    s_sprite.fillRect(cpX, cpY, cpW, cpH, bg);
+    s_sprite.drawRect(cpX, cpY, cpW, cpH, light);   // single 1 px border
 
     int chosen = audioCurrentStation();
 
-    // Big display name (override > ICY > URL-derived).
+    // Big station display name (override > ICY > URL-derived).
     String stName = audioStationDisplayName(chosen);
     if (stName.length() > 16) stName = stName.substring(0, 16);
-    s_sprite.setTextColor(TFT_GREEN, TFT_BLACK);
-    s_sprite.drawString(stName, cpX + 8, cpY + 24, 2);
+    s_sprite.setTextColor(TFT_GREEN, bg);
+    s_sprite.drawString(stName, cpX + 8, cpY + 6, 2);
 
-    // "On Air" label + (scrolling) station-name strip, both centred.
-    // The scrolling strip is drawn by displayDrawScroll() at
-    // (kOnAirScrollX, kOnAirScrollY); here we only render the label.
-    s_sprite.setTextColor(g[4], TFT_BLACK);
-    {
-        const char *label = "On Air";
-        int tw = (int)strlen(label) * 14;         // ~14 px per char @ font 2
+    // "On Air" label, centred, above the scrolling station-name strip.
+    auto centeredLabel = [&](const char *txt, int y, uint16_t c) {
+        int tw = (int)strlen(txt) * 14;
         int lx2 = cpX + (cpW - tw) / 2;
-        s_sprite.drawString(label, lx2, cpY + 88, 2);
-    }
+        s_sprite.setTextColor(c, bg);
+        s_sprite.drawString(txt, lx2, y, 2);
+    };
+    // Strip coordinates from the top of the file:
+    //   kOnAirScrollY = 112  -> label just above it
+    //   kSongScrollY  = 152  -> label just above that
+    // Labels at y-16 so there's room for font 2's glyph height.
+    centeredLabel("On Air",     kOnAirScrollY - 18, orange);
+    centeredLabel("Now Playing", kSongScrollY - 18, orange);
 
-    // Bordered song-title strip (blitted by displayDrawScroll).
-    s_sprite.drawRect(kSongScrollX - 2, kSongScrollY - 2,
-                      kSongScrollW + 4, kSongScrollH + 4, g[11]);
-    // Bordered on-air strip (likewise).
-    s_sprite.drawRect(kOnAirScrollX - 2, kOnAirScrollY - 2,
-                      kOnAirScrollW + 4, kOnAirScrollH + 4, g[13]);
+    // NB: no borders around either scroll strip -- user spec.
 
     // ---- 50 / 50 station switcher -----------------------------------
     // Left half = previous. Right half = next. Title row above each
@@ -637,6 +688,15 @@ static void drawNowPlaying() {
         uint16_t c = (i < vol) ? g_theme.volumeBar : g[11];
         s_sprite.fillRect(segX, y, segW, segH, c);
     }
+
+    // ---- Paused overlay (NP mode only). Big "||" in the card centre.
+    if (audioIsPaused()) {
+        int cx = cpX + cpW / 2;
+        int cy = cpY + cpH / 2;
+        const int bw = 18, bh = 54, gap2 = 14;
+        s_sprite.fillRoundRect(cx - gap2/2 - bw, cy - bh/2, bw, bh, 3, TFT_YELLOW);
+        s_sprite.fillRoundRect(cx + gap2/2,      cy - bh/2, bw, bh, 3, TFT_YELLOW);
+    }
 }
 
 static void drawBigClock() {
@@ -667,6 +727,22 @@ static void drawBigClock() {
     int tw = (int)strlen(dateBuf) * 14;
     int lx = (240 - tw) / 2; if (lx < 0) lx = 0;
     s_sprite.drawString(String(dateBuf), lx, 180, 2);
+
+    // ---- Paused indicator: small "||" + "Playback Paused" text.
+    // Sits above the footer (y=217) and well clear of the big clock
+    // face. Does not overlay the clock.
+    if (audioIsPaused()) {
+        const char *label = "Playback Paused";
+        const int labelW  = (int)strlen(label) * 6;   // font 1 is ~6 px/char
+        const int bars    = 13;                       // 5+3+5
+        const int total   = bars + 4 + labelW;
+        const int sx      = (240 - total) / 2;
+        const int y       = 205;
+        s_sprite.fillRoundRect(sx,     y, 5, 14, 1, TFT_YELLOW);
+        s_sprite.fillRoundRect(sx + 8, y, 5, 14, 1, TFT_YELLOW);
+        s_sprite.setTextColor(TFT_YELLOW, bg);
+        s_sprite.drawString(label, sx + bars + 4, y + 3, 1);
+    }
 }
 
 void displayDrawMain() {
