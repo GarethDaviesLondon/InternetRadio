@@ -1,5 +1,17 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
+UPdate display with the Station Scroll buttons to be 50% left.right split. Title above the box "<<Prev" and "Next>>" centererd. In the box the name of the station.
+the "on air: " line. Please split this one line centered "On Air", next line the name of the station, scroll if bigger than the 90% width of the screen. 
+Remove the "Slot X of Y" 
+Create a play/pause button ("||" ">")
+Draw a one pixel box around the Now Playing box.
+Leave an additional to what is there already 2-3 pixels gap between clock and top of this box.
+A mode where we can hide the now playing and just be a clock with a large display (maintain top and bottom banners)
+Short press on the power button to change between the modes
+Double click on the power button to play/pause
+A long press on the power button to go to deep sleep
+A long press to wake up from deep sleep.
+
 == Changes made in this round (26-4-2026) =======================================
 
   1. 10 s boot splash + continuing connect view.
