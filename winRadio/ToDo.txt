@@ -1,4 +1,14 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
+1. Let's implement 6-Axis IMU 
+  a. On move wake the screen up
+  b. On face down pause the music, restart on face up.
+  
+2. Expand station memory - software expandable to 30 using an "Add" from the web interface.
+  Chane the logic from "replace" to "Add" for stations found during discovery.
+  Add in the possibility to delete stations from the stored list. Therefore the list of stations expands and contracts
+  from 0 to 30. [If 30 stations violates already allocated memory reduce the max number of stations, not critical]
+
+
 
 
 == Changes made in this round (30-4-2026) =======================================
