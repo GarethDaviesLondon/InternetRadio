@@ -73,7 +73,8 @@ String pageFoot() {
     String p;
     p += F("<footer>");
     p += FIRMWARE_NAME; p += F(" "); p += FIRMWARE_VERSION;
-    p += F(" &mdash; <a href=/>home</a> &middot; <a href=/discover>discover</a></footer></body></html>");
+    p += F(" &mdash; <a href=/>home</a> &middot; <a href=/discover>discover</a>"
+           " &middot; <a href=/api-docs>API</a></footer></body></html>");
     return p;
 }
 
@@ -190,16 +191,14 @@ void handleIndex() {
     p += F("</div></div>");
 
     p += F("<div class=card><h2>Controls</h2><div class=row>"
-           "<a class=btn href=/discover style='background:#5ae3ff;color:#0b0d11;"
-           "padding:.6em 1em;border-radius:5px;text-decoration:none;font-weight:600'>"
-           "&#128269; Discover</a>");
-    p += F("<form method=POST action=/api/prev><button>Prev</button></form>");
+           // Discover and Reboot live elsewhere on the page -- the
+           // former inside the Stations card, the latter at the very
+           // bottom -- per user spec.
+           "<form method=POST action=/api/prev><button>Prev</button></form>");
     p += F("<form method=POST action=/api/play><button>");
     p += audioIsPaused() ? F("&#9654; Play") : F("&#10074;&#10074; Pause");
     p += F("</button></form>");
     p += F("<form method=POST action=/api/next><button>Next</button></form>");
-    p += F("<form method=POST action=/api/reboot onsubmit=\"return confirm('Reboot the radio?')\">"
-           "<button class=warn>Reboot</button></form>");
     p += F("</div>");
 
     // Fine volume slider (0..21). Uses POST /api/volume?raw=N.
@@ -291,15 +290,13 @@ void handleIndex() {
       "}"
       "</script>");
 
-    p += F("<div class=card><h2>API</h2><div class=kv>"
-           "<div>GET /api/state</div><div>Full state as JSON</div>"
-           "<div>POST /api/station</div><div>Body: n=&lt;0..N-1&gt;</div>"
-           "<div>POST /api/station-edit</div><div>Body: n=&lt;slot&gt; name=... url=... (or reset=1)</div>"
-           "<div>POST /api/next</div><div></div>"
-           "<div>POST /api/prev</div><div></div>"
-           "<div>POST /api/volume</div><div>Body: raw=&lt;0..21&gt;  or  v=&lt;1..5&gt;  or  d=&pm;1</div>"
-           "<div>POST /api/eq</div><div>Body: b=&lt;-40..6&gt; m=&lt;-40..6&gt; t=&lt;-40..6&gt;</div>"
-           "<div>POST /api/reboot</div><div></div>"
+    // Reboot lives at the very bottom of the page now so the reach-
+    // everything control isn't next to volume sliders.
+    p += F("<div class=card><h2>System</h2><div class=row>"
+           "<form method=POST action=/api/reboot "
+           "onsubmit=\"if(!confirm('Reboot the radio?'))return false;"
+           "showLoading('Rebooting...')\">"
+           "<button class=warn>&#x21bb; Reboot radio</button></form>"
            "</div></div>");
 
     // Loading modal + nav-click helper (shared with /discover).
@@ -317,6 +314,14 @@ void handleIndex() {
       "window.addEventListener('pageshow',()=>LM.style.display='none');"
       "document.querySelectorAll('form').forEach(f=>{"
       " f.addEventListener('submit',()=>showLoading('Working...'));"
+      "});"
+      // Same link-click feedback as /discover, so first-time nav to the
+      // Discover page (slow TLS + API round trip, no browser cache)
+      // doesn't look frozen.
+      "document.querySelectorAll('a[href]').forEach(a=>{"
+      " const h=a.getAttribute('href');"
+      " if(!h||h.startsWith('#')||h.startsWith('http')||a.target==='_blank')return;"
+      " a.addEventListener('click',()=>showLoading('Loading page...'));"
       "});"
       "</script>");
 
@@ -408,6 +413,36 @@ void handleTimezone() {
 void handleFavicon() {
     s_http.sendHeader("Cache-Control", "max-age=86400");
     s_http.send(200, "image/svg+xml", on8citFaviconSvg());
+}
+
+void handleApiDocs() {
+    String p = pageHead("ON8CIT WebRadio -- API");
+    p += F("<div class=card><h2>HTTP API</h2>"
+           "<p style='color:#8aa;font-size:.9em'>Every control on the home "
+           "page and on <a href=/discover>Discover</a> is wired through "
+           "these endpoints. Use them for your own automation.</p>"
+           "<div class=kv>"
+           "<div>GET /api/state</div>"
+           "<div>Full state as JSON (ssid, station, song, volume, paused, clock ...)</div>"
+           "<div>POST /api/station</div><div>Body: n=&lt;0..N-1&gt; -- select saved slot</div>"
+           "<div>POST /api/station-edit</div>"
+           "<div>Body: n=&lt;slot&gt; name=... url=... (or reset=1) -- edit a saved slot</div>"
+           "<div>POST /api/next</div><div>Cycle to the next saved slot</div>"
+           "<div>POST /api/prev</div><div>Cycle to the previous saved slot</div>"
+           "<div>POST /api/play</div><div>Toggle pause / resume</div>"
+           "<div>POST /api/volume</div>"
+           "<div>Body: raw=&lt;0..21&gt; or v=&lt;1..5&gt; or d=&pm;1</div>"
+           "<div>POST /api/eq</div>"
+           "<div>Body: b=&lt;-40..6&gt; m=&lt;-40..6&gt; t=&lt;-40..6&gt;</div>"
+           "<div>POST /api/listen</div>"
+           "<div>Body: url=... name=... -- ad-hoc preview play (Discover uses this)</div>"
+           "<div>POST /api/timezone</div><div>Body: tz=&lt;POSIX string&gt;</div>"
+           "<div>POST /api/reboot</div><div>Restarts the radio</div>"
+           "</div>"
+           "</div>"
+           "<p><a href=/>&laquo; Home</a> &middot; <a href=/discover>Discover</a></p>");
+    p += pageFoot();
+    s_http.send(200, "text/html", p);
 }
 
 // ---- /discover --------------------------------------------------------
@@ -553,14 +588,14 @@ void handleDiscover() {
                 p += htmlEscape(h.name);
                 p += F("'>&#9654; Listen</button>");
 
-                p += F("<form method=POST action=/api/station-edit "
-                       "onsubmit='showLoading(\"Saving...\")' "
-                       "style='display:flex;gap:.3em;flex:1'>");
-                p += F("<input type=hidden name=name value='");
-                p += htmlEscape(h.name); p += F("'>");
-                p += F("<input type=hidden name=url value='");
-                p += htmlEscape(h.url);  p += F("'>");
-                p += F("<select name=n style='flex:1'>");
+                // Save is AJAX so the results page stays put (no
+                // redirect back to /). Data attributes carry the
+                // candidate, a <select> on the left picks the slot.
+                p += F("<form class=saveForm data-name='");
+                p += htmlEscape(h.name); p += F("' data-url='");
+                p += htmlEscape(h.url);
+                p += F("' style='display:flex;gap:.3em;flex:1'>");
+                p += F("<select class=slotPick style='flex:1'>");
                 for (int s = 0; s < nst; s++) {
                     p += F("<option value="); p += s; p += F(">Slot ");
                     p += (s + 1); p += F(": ");
@@ -568,7 +603,7 @@ void handleDiscover() {
                     p += F("</option>");
                 }
                 p += F("</select>");
-                p += F("<button>Save</button></form>");
+                p += F("<button type=submit>Save</button></form>");
                 p += F("</div></li>");
                 rowIdx++;
             }
@@ -625,11 +660,43 @@ void handleDiscover() {
       // to hit the server. Hooked up on DOMContentLoaded of those pages
       // (see the home-page script).
       "window.addEventListener('pageshow',()=>hideLoading());"
+      // AJAX save: POST to /api/station-edit, show a brief toast on the
+      // same button, stay on the results page.
+      "document.querySelectorAll('.saveForm').forEach(f=>{"
+      " f.addEventListener('submit',async e=>{"
+      "  e.preventDefault();"
+      "  const btn=f.querySelector('button');"
+      "  const oldLabel=btn.textContent;"
+      "  btn.disabled=true; btn.textContent='Saving...';"
+      "  try{"
+      "   const fd=new FormData();"
+      "   fd.append('name',f.dataset.name);"
+      "   fd.append('url',f.dataset.url);"
+      "   fd.append('n',f.querySelector('.slotPick').value);"
+      "   const r=await fetch('/api/station-edit',{method:'POST',body:fd});"
+      "   btn.textContent=r.ok?'\\u2713 Saved':'Save failed';"
+      "  }catch(err){btn.textContent='Error';}"
+      "  setTimeout(()=>{btn.textContent=oldLabel;btn.disabled=false;},1800);"
+      " });"
+      "});"
+      // Show loading modal on any internal link click so first-time
+      // Discover navigation (no browser cache yet, slow TLS + API round
+      // trip) gives visible feedback. Only triggers for same-origin
+      // hrefs that aren't "#..." anchors or external.
+      "document.querySelectorAll('a[href]').forEach(a=>{"
+      " const h=a.getAttribute('href');"
+      " if(!h||h.startsWith('#')||h.startsWith('http')||a.target==='_blank')return;"
+      " a.addEventListener('click',()=>showLoading('Loading page...'));"
+      "});"
       "</script>");
     p += pageFoot();
     s_http.send(200, "text/html", p);
 }
 
+// /api/station-edit retains its existing 302-to-/ behaviour for the
+// home-page modal form. The Discover page's Save uses AJAX (above)
+// which ignores the redirect and stays on the page. Both paths share
+// the same handler.
 void handleListen() {
     if (!s_http.hasArg("url")) { s_http.send(400, "text/plain", "missing url"); return; }
     String url  = s_http.arg("url");
@@ -668,6 +735,7 @@ void webBegin() {
     s_http.on("/api/play",     HTTP_POST, handlePlay);
     s_http.on("/discover",     HTTP_GET,  handleDiscover);
     s_http.on("/api/listen",   HTTP_POST, handleListen);
+    s_http.on("/api-docs",     HTTP_GET,  handleApiDocs);
     s_http.on("/api/volume",   HTTP_POST, handleVolume);
     s_http.on("/api/eq",       HTTP_POST, handleEq);
     s_http.on("/api/reboot",   HTTP_POST, handleReboot);
