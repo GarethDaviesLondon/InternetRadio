@@ -30,6 +30,13 @@ bool audioSelectStation(int idx); // true on success
 void audioNextStation();
 void audioPrevStation();
 
+// Ad-hoc playback: connect to an arbitrary URL without touching the
+// saved-stations list or the "current station index". Used by the web
+// /discover page's "Listen" button to preview a candidate before the
+// user decides to save it. On the next audioSelectStation or audio-
+// generated slot change the override goes away naturally.
+bool audioPlayAdhoc(const char *url, const char *name);
+
 int  audioVolume();               // 1..5 bucket (for the on-screen bar)
 void audioSetVolume(int v);       // 1..5 "big step" -- maps to raw 4/8/12/16/20
 

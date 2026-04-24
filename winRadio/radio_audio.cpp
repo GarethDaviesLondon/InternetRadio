@@ -310,6 +310,19 @@ bool audioSelectStation(int idx) {
 void audioNextStation() { audioSelectStation((s_chosen + 1) % stationsCount()); }
 void audioPrevStation() { audioSelectStation((s_chosen - 1 + stationsCount()) % stationsCount()); }
 
+bool audioPlayAdhoc(const char *url, const char *name) {
+    if (!url || !*url) return false;
+    s_paused = false;
+    bool ok = s_audio.connecttohost(url);
+    if (ok) {
+        s_curStation = name ? name : "";
+        s_song       = "";
+        s_bitrate    = 0;
+    }
+    Serial.printf("audio: adhoc '%s' -> %s\r\n", url, ok ? "ok" : "FAIL");
+    return ok;
+}
+
 void audioTogglePause() {
     s_paused = !s_paused;
     s_audio.pauseResume();

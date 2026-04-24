@@ -6,11 +6,13 @@
 #include "net.h"
 #include "display.h"
 #include "clock.h"
+#include "discover.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
+#include <vector>
 
 // Shared ON8CIT visual identity (defined in branding.cpp). Declared at
 // global (non-anonymous) scope so the linker binds to the external
@@ -71,7 +73,7 @@ String pageFoot() {
     String p;
     p += F("<footer>");
     p += FIRMWARE_NAME; p += F(" "); p += FIRMWARE_VERSION;
-    p += F(" &mdash; <a href=/>home</a></footer></body></html>");
+    p += F(" &mdash; <a href=/>home</a> &middot; <a href=/discover>discover</a></footer></body></html>");
     return p;
 }
 
@@ -187,7 +189,10 @@ void handleIndex() {
     p += F(" ("); p += netRssi(); p += F(" dBm)</div>");
     p += F("</div></div>");
 
-    p += F("<div class=card><h2>Controls</h2><div class=row>");
+    p += F("<div class=card><h2>Controls</h2><div class=row>"
+           "<a class=btn href=/discover style='background:#5ae3ff;color:#0b0d11;"
+           "padding:.6em 1em;border-radius:5px;text-decoration:none;font-weight:600'>"
+           "&#128269; Discover</a>");
     p += F("<form method=POST action=/api/prev><button>Prev</button></form>");
     p += F("<form method=POST action=/api/play><button>");
     p += audioIsPaused() ? F("&#9654; Play") : F("&#10074;&#10074; Pause");
@@ -384,6 +389,138 @@ void handleFavicon() {
     s_http.send(200, "image/svg+xml", on8citFaviconSvg());
 }
 
+// ---- /discover --------------------------------------------------------
+// Source selector (Radio-Browser for now; the UI is designed so more
+// sources can slot in as new enum values + another search function).
+enum DiscoverSource { SRC_RADIOBROWSER = 0 };
+static const char *sourceName(int s) {
+    switch (s) {
+        case SRC_RADIOBROWSER: return "Radio-Browser";
+        default:               return "Unknown";
+    }
+}
+
+void handleDiscover() {
+    String q       = s_http.arg("q");
+    String tag     = s_http.arg("tag");
+    String country = s_http.arg("country");
+    int    src     = s_http.hasArg("src") ? s_http.arg("src").toInt() : SRC_RADIOBROWSER;
+
+    std::vector<DiscoverHit>    hits;
+    std::vector<String>         tags, countries;
+    bool didSearch = q.length() || tag.length() || country.length();
+    int  found     = 0;
+    if (didSearch && src == SRC_RADIOBROWSER) {
+        found = discoverSearch(q, tag, country, 40, hits);
+    }
+    discoverTopTags(tags, 24);
+    discoverTopCountries(countries, 200);
+
+    String p = pageHead("ON8CIT WebRadio -- Discover");
+
+    // Source picker + search form.
+    p += F("<div class=card><h2>Discover</h2>"
+           "<form method=GET action=/discover style='display:flex;flex-direction:column;gap:.25em'>"
+           "<label>Source <select name=src>");
+    for (int s = 0; s <= SRC_RADIOBROWSER; s++) {
+        p += F("<option value=");
+        p += s;
+        if (s == src) p += F(" selected");
+        p += F(">");
+        p += sourceName(s);
+        p += F("</option>");
+    }
+    p += F("</select></label>");
+
+    p += F("<label>Search (name contains) "
+           "<input name=q value='");
+    p += htmlEscape(q);
+    p += F("'></label>");
+
+    p += F("<label>Genre / tag "
+           "<select name=tag><option value=''>-- any --</option>");
+    for (auto &t : tags) {
+        p += F("<option value='"); p += htmlEscape(t); p += F("'");
+        if (t == tag) p += F(" selected");
+        p += F(">"); p += htmlEscape(t); p += F("</option>");
+    }
+    p += F("</select></label>");
+
+    p += F("<label>Country "
+           "<select name=country><option value=''>-- any --</option>");
+    for (auto &c : countries) {
+        p += F("<option value='"); p += htmlEscape(c); p += F("'");
+        if (c == country) p += F(" selected");
+        p += F(">"); p += htmlEscape(c); p += F("</option>");
+    }
+    p += F("</select></label>");
+
+    p += F("<button type=submit>Search</button></form></div>");
+
+    if (didSearch) {
+        p += F("<div class=card><h2>Results ("); p += found; p += F(")</h2>");
+        if (found == 0) {
+            p += F("<p style='color:#8aa'>No hits.</p>");
+            p += F("<p style='color:#8aa;font-size:.85em'>Last error: ");
+            p += htmlEscape(discoverLastError());
+            p += F("</p>");
+        } else {
+            for (auto &h : hits) {
+                p += F("<div class=stationRow style='flex-direction:column;align-items:stretch;gap:.25em;margin:.25em 0'>");
+                p += F("<div style='display:flex;justify-content:space-between;gap:.5em'>");
+                p += F("<strong>"); p += htmlEscape(h.name); p += F("</strong>");
+                p += F("<span style='color:#8aa'>");
+                if (h.bitrate > 0) { p += h.bitrate; p += F(" kbps "); }
+                p += htmlEscape(h.codec);
+                if (h.country.length()) { p += F(" &middot; "); p += htmlEscape(h.country); }
+                p += F("</span></div>");
+                p += F("<small style='color:#8aa;word-break:break-all'>");
+                p += htmlEscape(h.url);
+                p += F("</small>");
+                p += F("<div class=row>");
+                // Listen-live: ad-hoc play without saving.
+                p += F("<form method=POST action=/api/listen>"
+                       "<input type=hidden name=url value='");
+                p += htmlEscape(h.url);
+                p += F("'><input type=hidden name=name value='");
+                p += htmlEscape(h.name);
+                p += F("'><button>&#9654; Listen</button></form>");
+                // Save-to-slot: dropdown + submit.
+                p += F("<form method=POST action=/api/station-edit>");
+                p += F("<input type=hidden name=name value='");
+                p += htmlEscape(h.name); p += F("'>");
+                p += F("<input type=hidden name=url value='");
+                p += htmlEscape(h.url);  p += F("'>");
+                p += F("<select name=n>");
+                int nst = stationsCount();
+                for (int s = 0; s < nst; s++) {
+                    p += F("<option value="); p += s; p += F(">Slot ");
+                    p += (s + 1); p += F(": ");
+                    p += htmlEscape(audioStationDisplayName(s));
+                    p += F("</option>");
+                }
+                p += F("</select>");
+                p += F("<button>Save</button></form>");
+                p += F("</div></div>");
+            }
+        }
+        p += F("</div>");
+    }
+
+    p += F("<p><a href=/>&laquo; Home</a></p>");
+    p += pageFoot();
+    s_http.send(200, "text/html", p);
+}
+
+void handleListen() {
+    if (!s_http.hasArg("url")) { s_http.send(400, "text/plain", "missing url"); return; }
+    String url  = s_http.arg("url");
+    String name = s_http.arg("name");
+    audioPlayAdhoc(url.c_str(), name.c_str());
+    s_http.sendHeader("Location", "/discover");
+    s_http.send(302);
+}
+
 void handleNotFound() { s_http.send(404, "text/plain", "not found"); }
 } // namespace
 
@@ -412,6 +549,8 @@ void webBegin() {
     s_http.on("/api/next",     HTTP_POST, handleNext);
     s_http.on("/api/prev",     HTTP_POST, handlePrev);
     s_http.on("/api/play",     HTTP_POST, handlePlay);
+    s_http.on("/discover",     HTTP_GET,  handleDiscover);
+    s_http.on("/api/listen",   HTTP_POST, handleListen);
     s_http.on("/api/volume",   HTTP_POST, handleVolume);
     s_http.on("/api/eq",       HTTP_POST, handleEq);
     s_http.on("/api/reboot",   HTTP_POST, handleReboot);
