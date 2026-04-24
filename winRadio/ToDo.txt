@@ -1,5 +1,20 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
+Scrolling Name and On Air haas a visible box on screen, please remove this box but keep the scrolling text.
+"On Air" should be above the scrolling station name, and "Now Playing" above the scrolling track name
+On the clock face - the scrolling now playing has a different background colour, it should be the same, on 
+this screen it should be 100% width.
+When a station name such as "Radio Caroline" is less than the width of the screen and doesn't need to scroll it 
+flickers, please stop the flicker
+When play is paused please overlay a large "||" symbol on the screen whn in Now PLaying mode.
+display a small version of "||" wuth the text "Playback Paused" on the clock screen, don't overlay the clock.
 
+Add to the start splash screen "By Gareth Davies, 2026"
+
+Please implement the webradio discovery as a page on the WebUI with one click add to favourites, and a 
+listen live (before saving to check) option. Implement a selection between the different sources of stations.
+Your suggestions on genre and search good, add geography options to search if possible.
+
+Don't implement the MP£ player settings yet.
 
 == Changes made in this round (27-4-2026) =======================================
 
