@@ -1,5 +1,41 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
+The now playing screen : Please align On Air and Now Playing to the left.
+
+The web discovery:
+  Put a large button on the home page - in the Stations area - to navigate to discovery
+  The refresh rate between pages is slow, so please pop a a modal "Loading..." when the navigation button
+  or some other user feedback so they know that the button press is registered. Same when reaching out to the web.
+
+  Geography: Please make the list alphabetical
+
+  When a list of stations is returned - play is good, but keep the page as is with the save button available,
+  and the user can then select other stations on the list to try. Don't navigate back to search.
+
+  When hitting play - provide user feeback to know that the play has request has registered (grey out?) and
+  the user knows when they should be hearing something.
+
+  Genre - please sort alphabetically. 
+  
+  If possible put a navigation link from each station to go to their home page in a new browser tab.
+
+  If possible display a little information about each station so we have an idea about it as well as the name
+  (location, genre?)
+
+  The source is only "Radio Browser" are there other options, if so can we add them?
+
+  Discovery worked for a while - but now has stopped working with this message: No hits.
+
+Last error: HTTP -1 from https://all.api.radio-browser.info/json/stations/search?order=votes&reverse=true&hidebroken=true&limit=40&tag=music
+
+On clock interface if the text is too long it wraps vertically before scrolling and over types the date. Keep the characters
+on one line, and reduce the now playing font size by around 40%
+
+When on the clock screen we need to display the volume setting, please put the 5 bars on that screen too (might be 
+horizontal as the clock is wide and I like that font size)
+
+
+
 
 == Changes made in this round (28-4-2026) =======================================
 
