@@ -65,9 +65,23 @@ static bool netAbortOnRightButton() {
     return inputRightHeld();
 }
 
-// Progress callback: repaint "Connecting to X (slot N of M)" on the LCD.
+// When did we start showing the boot splash? The progress callback uses
+// it to pick between the big splash (first ~10 s) and the compact scan +
+// commentary view once the splash has run its course.
+static uint32_t s_bootSplashStartMs = 0;
+constexpr uint32_t kBootSplashMs = 10000;
+
+// Progress callback: repaint the appropriate boot-time view as each saved
+// slot is tried. While the splash window is still open the commentary
+// replaces the splash's status line; afterwards we switch to the compact
+// logo + scan + commentary layout.
 static void netProgressUi(int slot, int total, const char *ssid) {
-    displayShowConnecting(ssid, slot, total, "Hold [V] = setup");
+    if (millis() - s_bootSplashStartMs < kBootSplashMs) {
+        String line = String("Trying ") + slot + "/" + total + ": " + (ssid ? ssid : "");
+        displayShowBootSplash(line.c_str());
+    } else {
+        displayShowCompactConnect(ssid, slot, total, "Hold [V] = setup");
+    }
 }
 
 // Busy-wait for the configured duration, returning early with `true` if
@@ -123,16 +137,26 @@ void setup() {
 
     displayBegin();
     if (storageSdMounted()) displayLoadThemeFromSd();
-    displayShowBootSplash("Scanning WiFi...");
+
+    // 10 s boot splash -- always held for the full window so the user
+    // has something to look at even if connect happens instantly. The
+    // splash status updates as each slot is tried (via netProgressUi).
+    s_bootSplashStartMs = millis();
+    displayShowBootSplash("Starting up...");
 
     netBegin();
     netScanNow();
+    displayShowBootSplash("Scan done. Connecting...");
 
-    // Show the scan results for ~4 s. During that window the user can
-    // press the right button (V) to jump straight into WiFi setup.
-    displayShowWifiScan("Hold [V] = setup", -1);
-    bool setupRequested = waitOrSetupButton(4000);
-
+    // Quick right-button check: setup-request during the splash still
+    // works so a user who knows they need to reconfigure doesn't have
+    // to wait the 10 s out.
+    bool setupRequested = false;
+    uint32_t t0 = millis();
+    while (!setupRequested && millis() - t0 < 500) {
+        if (inputRightHeld()) { setupRequested = true; break; }
+        delay(20);
+    }
     if (setupRequested || !wifiHasNetworks()) {
         runWifiSetup();
     }
@@ -153,6 +177,14 @@ void setup() {
         provisionStartBackground();   // background AP up again for next loop
     }
     provisionStop();   // associated: AP no longer needed
+
+    // If we joined inside the 10 s splash window, stay on the splash
+    // for the remainder so the boot brand gets its full showing.
+    displayShowBootSplash("Connected. Starting audio...");
+    while (millis() - s_bootSplashStartMs < kBootSplashMs) {
+        bootTick();
+        delay(50);
+    }
 
     clockBegin();        // kicks off SNTP now that STA is up
 

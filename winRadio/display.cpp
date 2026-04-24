@@ -322,6 +322,57 @@ void displayShowWifiScan(const char *footer, int highlightIdx) {
     drawFooter(footer);
 }
 
+void displayShowCompactConnect(const char *ssid, int slot, int total,
+                               const char *footer) {
+    if (!s_gfx) return;
+    s_gfx->fillScreen(RGB565_BLACK);
+    drawBrandingBanner(0, /*large=*/false);
+
+    // Scan list in the middle third.
+    int n = netScanCount();
+    const int rowH = 14, top = 32, maxRows = (180 - top) / rowH;
+    if (n == 0) {
+        s_gfx->setTextColor(RGB565_WHITE);
+        s_gfx->setCursor(2, top);
+        s_gfx->print("(no networks in cache)");
+    } else {
+        int shown = (n < maxRows) ? n : maxRows;
+        for (int i = 0; i < shown; i++) {
+            const ScanResult *r = netScanResult(i);
+            if (!r) continue;
+            int y = top + i * rowH;
+            rssiBars(2, y, (int)r->rssi);
+            s_gfx->setTextColor(RGB565_CYAN);
+            s_gfx->setCursor(22, y + 2);
+            s_gfx->printf("ch%-2u", r->channel);
+            s_gfx->setTextColor(RGB565_WHITE);
+            s_gfx->setCursor(52, y + 2);
+            String s = r->ssid;
+            if (s.length() > 28) s = s.substring(0, 28);
+            s_gfx->print(s);
+        }
+        if (n > maxRows) {
+            s_gfx->setTextColor(RGB565_WHITE);
+            s_gfx->setCursor(2, top + shown * rowH + 2);
+            s_gfx->printf("... +%d more", n - maxRows);
+        }
+    }
+
+    // Commentary (what we're currently trying).
+    s_gfx->setTextSize(1);
+    s_gfx->setTextColor(RGB565_GREEN);
+    s_gfx->setCursor(2, 188);
+    if (total > 0 && ssid) {
+        s_gfx->printf("Trying %d/%d: ", slot, total);
+        s_gfx->setTextColor(RGB565_WHITE);
+        String s = ssid;
+        // Truncate-with-ellipsis to fit the remaining width (~25 chars).
+        if (s.length() > 20) s = s.substring(0, 17) + "...";
+        s_gfx->print(s);
+    }
+    drawFooter(footer);
+}
+
 void displayShowConnecting(const char *ssid, int slot, int total,
                            const char *footer) {
     if (!s_gfx) return;
