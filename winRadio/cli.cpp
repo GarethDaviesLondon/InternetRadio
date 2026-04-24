@@ -10,6 +10,7 @@
 #include "provision.h"
 #include "display.h"
 #include "log.h"
+#include "clock.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -114,6 +115,9 @@ static void cmdHelp() {
     outln(F("  wifi diag              Dump WiFi driver state + last reason code"));
     outln(F("  cancel                 Exit setup-mode and resume boot flow"));
     outln(F("  reconnect              Try saved networks again"));
+    outln();
+    outln(F("  time, time show        Show synced date/time + timezone"));
+    outln(F("  time set <posix-tz>    Set POSIX TZ (e.g. GMT0BST,M3.5.0/1,M10.5.0)"));
     outln();
     outln(F("  sd status              Show SD card state"));
     outln(F("  sd ls <path>           List a directory"));
@@ -519,6 +523,22 @@ static void dispatch(const String &raw) {
     else if (eqi(cmd, "cancel") || eqi(cmd, "exit")) {
         cliCancelSetup();
         outln(F("Setup cancelled (if active)."));
+    }
+    else if (eqi(cmd, "time")) {
+        String sub, rest;
+        splitArg(arg, sub, rest);
+        if (sub.length() == 0 || eqi(sub, "show")) {
+            char d[32], t[16];
+            clockFormatDate(d, sizeof(d));
+            clockFormatTime(t, sizeof(t));
+            Serial.print(F("date  : ")); outln(d[0] ? d : "(not synced)");
+            Serial.print(F("time  : ")); outln(t[0] ? t : "(not synced)");
+            Serial.print(F("tz    : ")); outln(clockTimezone());
+        } else if (eqi(sub, "set")) {
+            if (rest.length() == 0) { outln(F("Usage: time set <POSIX TZ string>")); }
+            else if (clockSetTimezone(rest.c_str())) { outln(F("Timezone saved.")); }
+            else                                       { outln(F("Empty tz.")); }
+        } else outln(F("Usage: time [show|set <tz>]"));
     }
     else if (eqi(cmd, "reconnect"))                                          cmdReconnect();
     else if (eqi(cmd, "sd"))                                                 cmdSd(arg);

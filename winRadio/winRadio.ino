@@ -16,6 +16,7 @@
 #include "cli.h"
 #include "web.h"
 #include "provision.h"
+#include "clock.h"
 
 // --- WiFi connect UX ------------------------------------------------------
 
@@ -152,6 +153,8 @@ void setup() {
         provisionStartBackground();   // background AP up again for next loop
     }
     provisionStop();   // associated: AP no longer needed
+
+    clockBegin();        // kicks off SNTP now that STA is up
 
     audioBegin();
     audioStartLast();    // resumes the remembered station

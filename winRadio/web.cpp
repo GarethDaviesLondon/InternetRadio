@@ -5,6 +5,7 @@
 #include "storage.h"
 #include "net.h"
 #include "display.h"
+#include "clock.h"
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -111,7 +112,16 @@ String stateJson() {
     j += F("\"eqBass\":");     j += audioEqBass();            j += F(",");
     j += F("\"eqMid\":");      j += audioEqMid();             j += F(",");
     j += F("\"eqTreble\":");   j += audioEqTreble();          j += F(",");
-    j += F("\"running\":");    j += audioIsRunning() ? "true" : "false";
+    j += F("\"running\":");    j += audioIsRunning() ? "true" : "false"; j += F(",");
+    {
+        char dbuf[32], tbuf[16];
+        clockFormatDate(dbuf, sizeof(dbuf));
+        clockFormatTime(tbuf, sizeof(tbuf));
+        j += F("\"clockSynced\":"); j += clockIsSynced() ? "true" : "false"; j += F(",");
+        j += F("\"clockDate\":\""); j += jsonEscape(dbuf); j += F("\",");
+        j += F("\"clockTime\":\""); j += jsonEscape(tbuf); j += F("\",");
+        j += F("\"timezone\":\"");  j += jsonEscape(clockTimezone()); j += F("\"");
+    }
     j += F("}");
     return j;
 }
@@ -121,6 +131,43 @@ void handleIndex() {
     String p = pageHead("ON8CIT WebRadio");
     int cur = audioCurrentStation();
     int n   = stationsCount();
+
+    // Clock card (above Now playing).
+    {
+        char dbuf[32], tbuf[16];
+        clockFormatDate(dbuf, sizeof(dbuf));
+        clockFormatTime(tbuf, sizeof(tbuf));
+        p += F("<div class=card><h2>Clock</h2><div class=kv>");
+        p += F("<div>Date</div><div>");
+        p += (dbuf[0] ? htmlEscape(dbuf) : String("(syncing...)"));
+        p += F("</div>");
+        p += F("<div>Time</div><div>");
+        p += (tbuf[0] ? htmlEscape(tbuf) : String("(syncing...)"));
+        p += F("</div>");
+        p += F("<div>Zone</div><div>"); p += htmlEscape(clockTimezone()); p += F("</div>");
+        p += F("</div>");
+        // Timezone form: presets dropdown + free-text POSIX TZ field.
+        p += F("<form method=POST action=/api/timezone style='margin-top:.6em'>"
+               "<label>Timezone"
+               "<select name=preset onchange=\"tz.value=this.value\">"
+               "<option value=''>-- presets --</option>"
+               "<option value='UTC0'>UTC</option>"
+               "<option value='GMT0BST,M3.5.0/1,M10.5.0'>Europe/London (UK)</option>"
+               "<option value='CET-1CEST,M3.5.0,M10.5.0/3'>Europe/Paris + Berlin</option>"
+               "<option value='EST5EDT,M3.2.0,M11.1.0'>US Eastern</option>"
+               "<option value='CST6CDT,M3.2.0,M11.1.0'>US Central</option>"
+               "<option value='MST7MDT,M3.2.0,M11.1.0'>US Mountain</option>"
+               "<option value='PST8PDT,M3.2.0,M11.1.0'>US Pacific</option>"
+               "<option value='JST-9'>Asia/Tokyo</option>"
+               "<option value='AEST-10AEDT,M10.1.0,M4.1.0/3'>Australia/Sydney</option>"
+               "</select></label>"
+               "<label>Or type a POSIX TZ string"
+               "<input name=tz id=tz value=\"");
+        p += htmlEscape(clockTimezone());
+        p += F("\" required></label>"
+               "<button type=submit>Save timezone</button>"
+               "</form></div>");
+    }
 
     p += F("<div class=card><h2>Now playing</h2><div class=kv>");
     p += F("<div>Station</div><div>");
@@ -319,6 +366,14 @@ void handleReboot() {
     s_rebootAtMs    = millis() + 1500;
 }
 
+void handleTimezone() {
+    if (!s_http.hasArg("tz")) { s_http.send(400, "text/plain", "missing tz"); return; }
+    String tz = s_http.arg("tz"); tz.trim();
+    if (!clockSetTimezone(tz.c_str())) { s_http.send(400, "text/plain", "empty tz"); return; }
+    s_http.sendHeader("Location", "/");
+    s_http.send(302);
+}
+
 void handleFavicon() {
     s_http.sendHeader("Cache-Control", "max-age=86400");
     s_http.send(200, "image/svg+xml", on8citFaviconSvg());
@@ -354,6 +409,7 @@ void webBegin() {
     s_http.on("/api/volume",   HTTP_POST, handleVolume);
     s_http.on("/api/eq",       HTTP_POST, handleEq);
     s_http.on("/api/reboot",   HTTP_POST, handleReboot);
+    s_http.on("/api/timezone", HTTP_POST, handleTimezone);
     s_http.onNotFound(handleNotFound);
     s_http.begin();
     s_running = true;
