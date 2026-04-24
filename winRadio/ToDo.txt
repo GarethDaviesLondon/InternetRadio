@@ -1,7 +1,35 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
+1. On boot there is a brief display of available wifi networks. This is good but too short.
+   Please start with a 10 Second Splash screen while playing the beeps, and then
+   Until connected please display a smaller ON8CIT and circle logo, list of available wifi nodes
+   Horizontal scrolling (if necessary) Commentary as it tries to connect. Once connected proceed as now. Don't pause the searching and connecting
+   while the splash screen is displayed.
+
+2. Change the slpash morse to be just "de CIT" 
+
+3. The name of the webserver after boot should be "WebRadio.local" please create an icon for the webpage tab to 
+   match the ON8CIT logo.
+
+4. Can we use the internet to get the current time? If so please do so and we will use on the OLED display.
+   Please add time-zone etting to the web interface.
+
+5. Let's redesign the Home LED Screen.
+Top banner (as is ON8CIT Web Radio) - add to this same level Battery Level
+If we have access to time, display a digital clock with day-date-month and time HH:MM:SS.
+Then now playing window make horizontally 90% full width and less tall.
+Alongside right edge of the now playing - a vertical Volume indicator, with up and down arrows at either end
+(These arrows will be place holders for touch screen input to be implemented later)
+Bottom of now playing, scrolling window with title of song
+directly below bottom edge of the now playing, small in a "standout" box the friendly name of the radio station 
+above and below the currnet selection along with an arrow - this will be used to change channel with touch later
+Bottom edge please put in the RSSI indicator along with bit-rate.
+
+
+  
 
 == Changes made in this round (25-4-2026) =======================================
-
+  
+  
   1. Background AP during boot.
      - provisionStartBackground() puts WiFi into AP+STA mode so the
        captive portal is reachable alongside the saved-network connect
