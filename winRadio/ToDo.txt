@@ -1,31 +1,71 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
-1. On boot there is a brief display of available wifi networks. This is good but too short.
-   Please start with a 10 Second Splash screen while playing the beeps, and then
-   Until connected please display a smaller ON8CIT and circle logo, list of available wifi nodes
-   Horizontal scrolling (if necessary) Commentary as it tries to connect. Once connected proceed as now. Don't pause the searching and connecting
-   while the splash screen is displayed.
 
-2. Change the slpash morse to be just "de CIT" 
+== Changes made in this round (26-4-2026) =======================================
 
-3. The name of the webserver after boot should be "WebRadio.local" please create an icon for the webpage tab to 
-   match the ON8CIT logo.
+  1. 10 s boot splash + continuing connect view.
+     - Splash displays the full ON8CIT wordmark + logo for at least
+       10 s on every boot. If connect happens sooner, the splash
+       stays up until the 10 s has elapsed so the boot brand always
+       gets its full showing.
+     - Scan + netConnect() run *during* the splash window, not after.
+       A new progressCb (netProgressUi) picks between two display
+       modes based on elapsed time:
+         - < 10 s: big splash with "Trying N/M: <ssid>" as the status
+           line.
+         - >= 10 s: compact layout (small logo + scan list with chN +
+           RSSI bars + SSID + "Trying N/M: <ssid>" commentary).
+     - Pre-connect right-button check still jumps straight into
+       setup for users who know they need to reconfigure.
+     - Long SSIDs truncate with "..." in the commentary for now; a
+       proper horizontal ticker (like the song-title strip) would be
+       the next step if needed.
 
-4. Can we use the internet to get the current time? If so please do so and we will use on the OLED display.
-   Please add time-zone etting to the web interface.
+  2. Morse callsign is "de CIT".
+     - Shorter chirp at 30 WPM. Same volume (2/5). One-line change.
 
-5. Let's redesign the Home LED Screen.
-Top banner (as is ON8CIT Web Radio) - add to this same level Battery Level
-If we have access to time, display a digital clock with day-date-month and time HH:MM:SS.
-Then now playing window make horizontally 90% full width and less tall.
-Alongside right edge of the now playing - a vertical Volume indicator, with up and down arrows at either end
-(These arrows will be place holders for touch screen input to be implemented later)
-Bottom of now playing, scrolling window with title of song
-directly below bottom edge of the now playing, small in a "standout" box the friendly name of the radio station 
-above and below the currnet selection along with an arrow - this will be used to change channel with touch later
-Bottom edge please put in the RSSI indicator along with bit-rate.
+  3. Hostname "WebRadio.local" + tab favicon.
+     - DEFAULT_HOSTNAME is now "WebRadio"; main web UI + mDNS + diag
+       all update. Radio is reachable as http://WebRadio.local/.
+     - New on8citFaviconSvg() in branding.cpp: standalone SVG tile
+       with a dark rounded background + the broadcast-waves logo.
+     - /favicon.svg (and .ico alias) served by both web.cpp and
+       provision.cpp with image/svg+xml + Cache-Control. Pages now
+       include <link rel=icon type=image/svg+xml href=/favicon.svg>.
+
+  4. Network-synchronised wall clock + web timezone setting.
+     - New clock.{h,cpp}. configTzTime() against pool.ntp.org +
+       time.nist.gov + time.google.com. Default TZ is Europe/London
+       (GMT0BST,M3.5.0/1,M10.5.0).
+     - clockFormatDate -> "Sat 25-Apr-2026", clockFormatTime ->
+       "14:32:05". Exposed to the display module for the LCD strip
+       and to the web UI's Clock card + /api/state JSON.
+     - Web: preset dropdown (UTC / UK / EU / US-E/C/M/P / JP / AU)
+       and a free-text POSIX TZ field. POST /api/timezone persists
+       to NVS ("clock/tz") and re-arms SNTP immediately.
+     - CLI: `time` / `time show` / `time set <posix-tz>`.
+
+  5. Redesigned home LCD.
+     - Banner (0..24) : mini logo + ON8CIT WebRadio wordmark (yellow
+       + cyan) + battery pill at the right edge.
+     - Clock (24..46) : date + HH:MM:SS, falls back to "(time
+       syncing)" while SNTP is warming up.
+     - Now-playing card (50..172, 90%-wide) : big station display
+       name (override > ICY > URL-derived), slot-of-N, optional
+       "On air: <icy>" line, bordered song-title scroll strip at
+       y=150.
+     - Volume column (right 10%) : vertical 5-segment bar flanked
+       by up/down triangle placeholders for a future touch driver.
+     - Station switcher (174..216) : 3-row picker with prev/next
+       station names (dim) flanked by ^/v triangles, current slot
+       centred in an orange-outlined highlight.
+     - Footer (218..240) : orange rule + "RSSI -45 dBm  BITRATE
+       128 kbps".
+     - sprite2 (song ticker) repositioned to (6, 150, 202x16) so it
+       sits inside the now-playing card instead of on the old
+       bottom strip.
 
 
-  
+
 
 == Changes made in this round (25-4-2026) =======================================
   
