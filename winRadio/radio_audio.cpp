@@ -31,6 +31,7 @@ static long     s_bitrate = 0;
 static unsigned s_infoCount = 0;
 static bool     s_log = false;
 static String   s_displayName;        // scratch for audioStationDisplayName
+static bool     s_paused = false;
 
 // Session persistence (NVS namespace "radio"). Keys:
 //   vol  : int 0..21 (raw)
@@ -299,6 +300,7 @@ bool audioSelectStation(int idx) {
     if (idx < 0)  idx = 0;
     if (idx >= n) idx = n - 1;
     s_chosen = idx;
+    s_paused = false;
     bool ok = s_audio.connecttohost(stationsUrl(s_chosen));
     Serial.printf("connecttohost('%s') -> %s\r\n", stationsUrl(s_chosen), ok ? "ok" : "FAIL");
     persistSession();
@@ -307,6 +309,13 @@ bool audioSelectStation(int idx) {
 
 void audioNextStation() { audioSelectStation((s_chosen + 1) % stationsCount()); }
 void audioPrevStation() { audioSelectStation((s_chosen - 1 + stationsCount()) % stationsCount()); }
+
+void audioTogglePause() {
+    s_paused = !s_paused;
+    s_audio.pauseResume();
+    Serial.printf("audio: %s\r\n", s_paused ? "paused" : "resumed");
+}
+bool audioIsPaused() { return s_paused; }
 
 // Buttons + on-screen bar use a 1..5 "big step". Internally that maps to
 // raw 4, 8, 12, 16, 20 on the audio library's 0..21 scale.

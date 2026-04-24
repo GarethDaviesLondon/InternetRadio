@@ -9,11 +9,13 @@
 
 enum InputEvent {
     INPUT_NONE = 0,
-    INPUT_PREV,        // mid button (or left tap on touch) -> previous station
-    INPUT_NEXT,        // also mid button in current sketch -> next station
+    INPUT_PREV,        // (touch only, future) -- previous station
+    INPUT_NEXT,        // mid button: next station
     INPUT_VOL_UP,      // right button
     INPUT_VOL_DOWN,    // (touch only, future)
-    INPUT_SLEEP,       // left button held -> deep sleep
+    INPUT_SLEEP,       // left button LONG press -> deep sleep
+    INPUT_MODE_TOGGLE, // left button SHORT press -> cycle display mode
+    INPUT_PLAY_PAUSE,  // left button DOUBLE click -> toggle audio
     INPUT_TOUCH_TAP,   // raw touch event payload (future)
 };
 

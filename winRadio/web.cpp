@@ -113,6 +113,7 @@ String stateJson() {
     j += F("\"eqMid\":");      j += audioEqMid();             j += F(",");
     j += F("\"eqTreble\":");   j += audioEqTreble();          j += F(",");
     j += F("\"running\":");    j += audioIsRunning() ? "true" : "false"; j += F(",");
+    j += F("\"paused\":");     j += audioIsPaused()  ? "true" : "false"; j += F(",");
     {
         char dbuf[32], tbuf[16];
         clockFormatDate(dbuf, sizeof(dbuf));
@@ -188,6 +189,9 @@ void handleIndex() {
 
     p += F("<div class=card><h2>Controls</h2><div class=row>");
     p += F("<form method=POST action=/api/prev><button>Prev</button></form>");
+    p += F("<form method=POST action=/api/play><button>");
+    p += audioIsPaused() ? F("&#9654; Play") : F("&#10074;&#10074; Pause");
+    p += F("</button></form>");
     p += F("<form method=POST action=/api/next><button>Next</button></form>");
     p += F("<form method=POST action=/api/reboot onsubmit=\"return confirm('Reboot the radio?')\">"
            "<button class=warn>Reboot</button></form>");
@@ -327,6 +331,7 @@ void handleStationEdit() {
 
 void handleNext()  { audioNextStation(); s_http.sendHeader("Location", "/"); s_http.send(302); }
 void handlePrev()  { audioPrevStation(); s_http.sendHeader("Location", "/"); s_http.send(302); }
+void handlePlay()  { audioTogglePause(); s_http.sendHeader("Location", "/"); s_http.send(302); }
 
 void handleVolume() {
     if (s_http.hasArg("raw")) {
@@ -406,6 +411,7 @@ void webBegin() {
     s_http.on("/api/station-edit",  HTTP_POST, handleStationEdit);
     s_http.on("/api/next",     HTTP_POST, handleNext);
     s_http.on("/api/prev",     HTTP_POST, handlePrev);
+    s_http.on("/api/play",     HTTP_POST, handlePlay);
     s_http.on("/api/volume",   HTTP_POST, handleVolume);
     s_http.on("/api/eq",       HTTP_POST, handleEq);
     s_http.on("/api/reboot",   HTTP_POST, handleReboot);

@@ -33,6 +33,11 @@ void audioPrevStation();
 int  audioVolume();               // 1..5 bucket (for the on-screen bar)
 void audioSetVolume(int v);       // 1..5 "big step" -- maps to raw 4/8/12/16/20
 
+// Pause / resume current playback. audioIsPaused() tracks our intent;
+// the underlying library's state may drift after a stream ends.
+void audioTogglePause();
+bool audioIsPaused();
+
 // Fine-grained volume, used by the web UI slider. 0..21 passes straight to
 // ESP32-audioI2S setVolume(). audioVolume() is a rounded-up bucket of this.
 int  audioVolumeRaw();

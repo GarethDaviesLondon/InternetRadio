@@ -50,10 +50,24 @@ static uint8_t            s_backlightLevel = kBacklightActive;
 // Middle:   48..170 -> now-playing card (left ~90%) + volume column (right).
 // Slider:  172..214 -> three-row station switcher with ^/v arrows.
 // Footer:  216..240 -> RSSI + bitrate.
+// Song-title ticker sits at the very bottom of the now-playing card.
 constexpr int kSongScrollX = 6;
-constexpr int kSongScrollY = 150;
+constexpr int kSongScrollY = 152;
 constexpr int kSongScrollW = 202;
-constexpr int kSongScrollH = 16;
+constexpr int kSongScrollH = 14;
+// On-air scrolling sub-line (station name from ICY). Runs inside the NP
+// card, above the song ticker.
+constexpr int kOnAirScrollX = 6;
+constexpr int kOnAirScrollY = 112;
+constexpr int kOnAirScrollW = 202;
+constexpr int kOnAirScrollH = 14;
+
+static int          s_onAirPosition = -220;
+static DisplayMode  s_mode = DM_NOW_PLAYING;
+
+void        displaySetMode(DisplayMode m) { s_mode = m; s_repaint = true; }
+void        displayToggleMode()           { displaySetMode(s_mode == DM_NOW_PLAYING ? DM_BIG_CLOCK : DM_NOW_PLAYING); }
+DisplayMode displayActiveMode()           { return s_mode; }
 
 // --- Theme ---------------------------------------------------------------
 
@@ -448,42 +462,63 @@ static void blitSprite(LGFX_Sprite &sp, int dx, int dy, int w, int h) {
 }
 
 void displayDrawScroll() {
+    // Song-title ticker (always runs).
     s_songPosition--;
     if (s_songPosition < -220) s_songPosition = kSongScrollW;
     s_sprite2.fillSprite(TFT_BLACK);
-    s_sprite2.drawString(audioSongPlaying(), s_songPosition, 5);
+    s_sprite2.drawString(audioSongPlaying(), s_songPosition, 2);
     blitSprite(s_sprite2, kSongScrollX, kSongScrollY, kSongScrollW, kSongScrollH);
+
+    // On-air station-name ticker. Only in the NP mode; big-clock mode
+    // skips this strip entirely.
+    if (s_mode != DM_NOW_PLAYING) return;
+    const char *icy = audioCurStation();
+    if (!icy || !*icy) return;
+
+    String s = icy;
+    // Decide if scrolling is needed. Built-in LGFX textWidth at font 2
+    // is ~14px per char; kOnAirScrollW = 202 -> ~14 chars fit static.
+    bool scroll = ((int)s.length() * 14) > kOnAirScrollW;
+    s_sprite2.fillSprite(TFT_BLACK);
+    if (scroll) {
+        s_onAirPosition--;
+        if (s_onAirPosition < -(int)(s.length() * 14)) s_onAirPosition = kOnAirScrollW;
+        s_sprite2.drawString(s, s_onAirPosition, 2);
+    } else {
+        // Static centre.
+        int x = (kOnAirScrollW - (int)s.length() * 14) / 2;
+        if (x < 0) x = 0;
+        s_sprite2.drawString(s, x, 2);
+    }
+    blitSprite(s_sprite2, kOnAirScrollX, kOnAirScrollY, kOnAirScrollW, kOnAirScrollH);
 }
 
-void displayDrawMain() {
+// Draws only the banner + footer (without clearing the middle). Used by
+// both the NP layout and the big-clock layout so the chrome is
+// consistent.
+static void drawChrome() {
     const uint16_t bg     = g_theme.bg;
-    const uint16_t light  = g_theme.panelBorder;
     const uint16_t orange = g_theme.orange;
     auto &g = g_theme.grays;
 
-    s_sprite.fillRect(0, 0, 240, 240, bg);
-
     // ---- Top banner: logo + brand + battery --------------------------
-    // Mini broadcast-waves logo (concentric rings + core) on the left.
     s_sprite.fillRect(0, 0, 240, 24, TFT_BLACK);
     int lx = 12, ly = 12;
-    s_sprite.drawCircle(lx, ly, 10, 0x5220);                    // faint ring
-    s_sprite.drawCircle(lx, ly,  7, 0xC4C0);                    // mid ring
-    s_sprite.drawCircle(lx, ly,  4, TFT_YELLOW);                // core ring
+    s_sprite.drawCircle(lx, ly, 10, 0x5220);
+    s_sprite.drawCircle(lx, ly,  7, 0xC4C0);
+    s_sprite.drawCircle(lx, ly,  4, TFT_YELLOW);
     s_sprite.fillCircle(lx, ly,  2, TFT_YELLOW);
     s_sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
     s_sprite.drawString("ON8CIT",   28, 2, 2);
     s_sprite.setTextColor(TFT_CYAN, TFT_BLACK);
     s_sprite.drawString("WebRadio", 90, 2, 2);
-
-    // Battery pill at the right edge of the banner.
-    int batLevel = powerBatteryLevel();   // 0..13
+    int batLevel = powerBatteryLevel();
     int bx = 190, by = 6;
     s_sprite.drawRect(bx, by, 40, 12, TFT_GREEN);
     s_sprite.fillRect(bx + 2, by + 2, (batLevel * 36) / 13, 8, TFT_GREEN);
-    s_sprite.fillRect(bx + 40, by + 3, 2, 6, TFT_GREEN);        // nub
+    s_sprite.fillRect(bx + 40, by + 3, 2, 6, TFT_GREEN);
 
-    // ---- Clock strip (day date-month + HH:MM:SS) ---------------------
+    // ---- Clock strip -------------------------------------------------
     s_sprite.fillRect(0, 24, 240, 22, bg);
     char dateBuf[24], timeBuf[16];
     clockFormatDate(dateBuf, sizeof(dateBuf));
@@ -493,92 +528,7 @@ void displayDrawMain() {
     else            s_sprite.drawString("(time syncing)",  4, 28, 1);
     s_sprite.setTextColor(TFT_YELLOW, bg);
     if (timeBuf[0]) s_sprite.drawString(String(timeBuf), 166, 28, 2);
-
-    // Divider under the clock.
     s_sprite.fillRect(0, 46, 240, 1, orange);
-
-    // ---- Now-playing card (left 90%) + volume column (right) ---------
-    const int cpX = 4, cpY = 50, cpW = 206, cpH = 122;
-    s_sprite.fillRect(cpX, cpY, cpW, cpH, TFT_BLACK);
-    s_sprite.drawRect(cpX, cpY, cpW, cpH, light);
-
-    s_sprite.setTextColor(orange, TFT_BLACK);
-    s_sprite.drawString("NOW PLAYING", cpX + 8, cpY + 4, 1);
-
-    int chosen = audioCurrentStation();
-    int nsta   = stationsCount();
-
-    // Big display name (override > ICY > URL-derived).
-    String stName = audioStationDisplayName(chosen);
-    if (stName.length() > 16) stName = stName.substring(0, 16);
-    s_sprite.setTextColor(TFT_GREEN, TFT_BLACK);
-    s_sprite.drawString(stName, cpX + 8, cpY + 24, 2);
-
-    // Bitrate / slot row.
-    char sub[32];
-    snprintf(sub, sizeof(sub), "Slot %d of %d", chosen + 1, nsta);
-    s_sprite.setTextColor(g[4], TFT_BLACK);
-    s_sprite.drawString(sub, cpX + 8, cpY + 52, 1);
-
-    // Optional ICY "on air" line (skipped if we already used it as the
-    // big name above -- audioStationDisplayName falls through to ICY
-    // second, so an override + ICY both set shows override big, ICY
-    // small here).
-    const char *icy = audioCurStation();
-    if (icy && *icy && stName != icy) {
-        String s = icy;
-        if (s.length() > 26) s = s.substring(0, 26);
-        s_sprite.setTextColor(g[2], TFT_BLACK);
-        s_sprite.drawString("On air: " + s, cpX + 8, cpY + 70, 1);
-    }
-
-    // Song-title scroll strip is blitted by displayDrawScroll() at the
-    // bottom of the card (y=kSongScrollY=150, inside cpY+cpH window).
-    s_sprite.drawRect(kSongScrollX - 2, kSongScrollY - 2,
-                      kSongScrollW + 4, kSongScrollH + 4, g[11]);
-
-    // ---- Volume column on the right ---------------------------------
-    const int vx = cpX + cpW + 2;        // ~212
-    const int vyTop = cpY + 4, vyBot = cpY + cpH - 4;
-    // ^ placeholder (filled triangle pointing up)
-    s_sprite.fillTriangle(vx + 10, vyTop, vx + 3, vyTop + 10, vx + 17, vyTop + 10, g[2]);
-    // v placeholder
-    s_sprite.fillTriangle(vx + 10, vyBot, vx + 3, vyBot - 10, vx + 17, vyBot - 10, g[2]);
-    // Five-segment vertical bar mapping to the audioVolume() 1..5.
-    int vol = audioVolume();
-    const int segX = vx + 6, segW = 8;
-    const int segTop = vyTop + 16, segBot = vyBot - 16;
-    const int segTotal = segBot - segTop;
-    const int gap = 2, segH = (segTotal - 4 * gap) / 5;
-    for (int i = 0; i < 5; i++) {
-        // Segments are drawn top-to-bottom but meaning is bottom-to-top
-        // (i.e. segment 0 = loudest, segment 4 = quietest). We fill from
-        // the bottom up to `vol`.
-        int y = segBot - (i + 1) * segH - i * gap;
-        uint16_t c = (i < vol) ? g_theme.volumeBar : g[11];
-        s_sprite.fillRect(segX, y, segW, segH, c);
-    }
-
-    // ---- Station switcher (3 rows, current highlighted) -------------
-    const int swY = 174, swH = 42;
-    s_sprite.fillRect(0, swY, 240, swH, TFT_BLACK);
-    int prev = (chosen - 1 + nsta) % nsta;
-    int next = (chosen + 1) % nsta;
-    String nmP = audioStationDisplayName(prev); if (nmP.length() > 24) nmP = nmP.substring(0, 24);
-    String nmN = audioStationDisplayName(next); if (nmN.length() > 24) nmN = nmN.substring(0, 24);
-    // ^ (prev)
-    s_sprite.fillTriangle(8, swY + 6, 2, swY + 12, 14, swY + 12, g[4]);
-    s_sprite.setTextColor(g[6], TFT_BLACK);
-    s_sprite.drawString(nmP, 22, swY + 3, 1);
-    // highlighted current
-    s_sprite.fillRoundRect(4, swY + 14, 232, 16, 3, bg);
-    s_sprite.drawRoundRect(4, swY + 14, 232, 16, 3, orange);
-    s_sprite.setTextColor(TFT_YELLOW, bg);
-    s_sprite.drawString(stName, 10, swY + 16, 2);
-    // v (next)
-    s_sprite.fillTriangle(8, swY + 36, 2, swY + 30, 14, swY + 30, g[4]);
-    s_sprite.setTextColor(g[6], TFT_BLACK);
-    s_sprite.drawString(nmN, 22, swY + 31, 1);
 
     // ---- Footer: RSSI + bitrate -------------------------------------
     s_sprite.fillRect(0, 218, 240, 22, bg);
@@ -588,9 +538,142 @@ void displayDrawMain() {
              netRssi(), audioBitrate());
     s_sprite.setTextColor(g[2], bg);
     s_sprite.drawString(foot, 6, 223, 1);
+}
 
-    // Mute unused globals warnings for variables kept for future tweaks.
-    (void)g; (void)orange; (void)light;
+static void drawNowPlaying() {
+    const uint16_t bg     = g_theme.bg;
+    const uint16_t light  = g_theme.panelBorder;
+    const uint16_t orange = g_theme.orange;
+    auto &g = g_theme.grays;
+
+    // ---- Now-playing card (with 1-pixel border + 3 px gap below clock).
+    // Clock divider is at y=46, gap of 3, card starts at 50.
+    const int cpX = 4, cpY = 50, cpW = 216, cpH = 122;
+    s_sprite.fillRect(cpX, cpY, cpW, cpH, TFT_BLACK);
+    s_sprite.drawRect(cpX, cpY, cpW, cpH, light);   // 1 px border
+
+    s_sprite.setTextColor(orange, TFT_BLACK);
+    s_sprite.drawString("NOW PLAYING", cpX + 8, cpY + 4, 1);
+
+    // Play / Pause indicator at the top-right of the card (also a touch
+    // placeholder: the whole right edge could be tapped later).
+    bool paused = audioIsPaused();
+    int ix = cpX + cpW - 22, iy = cpY + 4;
+    if (paused) {
+        // "||"
+        s_sprite.fillRect(ix,     iy, 4, 10, TFT_YELLOW);
+        s_sprite.fillRect(ix + 6, iy, 4, 10, TFT_YELLOW);
+    } else {
+        // ">"
+        s_sprite.fillTriangle(ix, iy, ix, iy + 10, ix + 10, iy + 5, TFT_GREEN);
+    }
+
+    int chosen = audioCurrentStation();
+
+    // Big display name (override > ICY > URL-derived).
+    String stName = audioStationDisplayName(chosen);
+    if (stName.length() > 16) stName = stName.substring(0, 16);
+    s_sprite.setTextColor(TFT_GREEN, TFT_BLACK);
+    s_sprite.drawString(stName, cpX + 8, cpY + 24, 2);
+
+    // "On Air" label + (scrolling) station-name strip, both centred.
+    // The scrolling strip is drawn by displayDrawScroll() at
+    // (kOnAirScrollX, kOnAirScrollY); here we only render the label.
+    s_sprite.setTextColor(g[4], TFT_BLACK);
+    {
+        const char *label = "On Air";
+        int tw = (int)strlen(label) * 14;         // ~14 px per char @ font 2
+        int lx2 = cpX + (cpW - tw) / 2;
+        s_sprite.drawString(label, lx2, cpY + 88, 2);
+    }
+
+    // Bordered song-title strip (blitted by displayDrawScroll).
+    s_sprite.drawRect(kSongScrollX - 2, kSongScrollY - 2,
+                      kSongScrollW + 4, kSongScrollH + 4, g[11]);
+    // Bordered on-air strip (likewise).
+    s_sprite.drawRect(kOnAirScrollX - 2, kOnAirScrollY - 2,
+                      kOnAirScrollW + 4, kOnAirScrollH + 4, g[13]);
+
+    // ---- 50 / 50 station switcher -----------------------------------
+    // Left half = previous. Right half = next. Title row above each
+    // box, station-name inside. Current station is separately shown in
+    // the now-playing card, so we don't need to repeat it here.
+    const int swY = 174, swH = 42;
+    s_sprite.fillRect(0, swY, 240, swH, TFT_BLACK);
+    int nsta = stationsCount();
+    int prev = (chosen - 1 + nsta) % nsta;
+    int next = (chosen + 1) % nsta;
+    String nmP = audioStationDisplayName(prev);
+    String nmN = audioStationDisplayName(next);
+    if (nmP.length() > 13) nmP = nmP.substring(0, 13);
+    if (nmN.length() > 13) nmN = nmN.substring(0, 13);
+
+    // Titles, centred in their halves.
+    s_sprite.setTextColor(g[6], TFT_BLACK);
+    s_sprite.drawString("<<Prev", 34, swY + 2, 1);
+    s_sprite.drawString("Next>>", 160, swY + 2, 1);
+
+    // Box for each side.
+    s_sprite.drawRect(4,   swY + 14, 114, 22, orange);
+    s_sprite.drawRect(122, swY + 14, 114, 22, orange);
+    s_sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+    s_sprite.drawString(nmP, 10,  swY + 18, 2);
+    s_sprite.drawString(nmN, 128, swY + 18, 2);
+
+    // ---- Volume column on the right edge of the now-playing card.
+    // Drawn in the narrow band between the NP card's right border and
+    // the display edge (216..240 -> 24 px wide).
+    const int vx    = cpX + cpW + 2;        // = 222
+    const int vyTop = cpY + 4,  vyBot = cpY + cpH - 4;
+    s_sprite.fillTriangle(vx + 7, vyTop,       vx,     vyTop + 8, vx + 14, vyTop + 8, g[2]);
+    s_sprite.fillTriangle(vx + 7, vyBot,       vx,     vyBot - 8, vx + 14, vyBot - 8, g[2]);
+    int vol = audioVolume();
+    const int segX = vx + 3, segW = 8;
+    const int segTop = vyTop + 14, segBot = vyBot - 14;
+    const int segTotal = segBot - segTop;
+    const int gap = 2, segH = (segTotal - 4 * gap) / 5;
+    for (int i = 0; i < 5; i++) {
+        int y = segBot - (i + 1) * segH - i * gap;
+        uint16_t c = (i < vol) ? g_theme.volumeBar : g[11];
+        s_sprite.fillRect(segX, y, segW, segH, c);
+    }
+}
+
+static void drawBigClock() {
+    const uint16_t bg = g_theme.bg;
+    auto &g = g_theme.grays;
+    (void)g;
+
+    // Clear the middle band (clock+NP+switcher area) without touching
+    // the top banner/clock strip or the bottom footer.
+    s_sprite.fillRect(0, 50, 240, 166, bg);
+
+    char timeBuf[16];
+    clockFormatTime(timeBuf, sizeof(timeBuf));
+    if (!timeBuf[0]) {
+        s_sprite.setTextColor(TFT_YELLOW, bg);
+        s_sprite.drawString("(syncing)", 60, 110, 4);
+        return;
+    }
+    // Centred HH:MM:SS at the biggest built-in size. font 7 is the "7-
+    // segment" look and is the only truly huge font LGFX ships.
+    s_sprite.setTextColor(TFT_YELLOW, bg);
+    s_sprite.drawString(String(timeBuf),  4, 90, 7);
+
+    // Date in smaller bold below.
+    char dateBuf[24];
+    clockFormatDate(dateBuf, sizeof(dateBuf));
+    s_sprite.setTextColor(TFT_CYAN, bg);
+    int tw = (int)strlen(dateBuf) * 14;
+    int lx = (240 - tw) / 2; if (lx < 0) lx = 0;
+    s_sprite.drawString(String(dateBuf), lx, 180, 2);
+}
+
+void displayDrawMain() {
+    s_sprite.fillRect(0, 0, 240, 240, g_theme.bg);
+    drawChrome();
+    if (s_mode == DM_BIG_CLOCK) drawBigClock();
+    else                         drawNowPlaying();
 
     blitSprite(s_sprite, 0, 0, DISPLAY_W, DISPLAY_H);
     s_repaint = false;

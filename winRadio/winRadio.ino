@@ -225,13 +225,15 @@ void loop() {
     InputEvent ev = inputPoll();
     if (ev != INPUT_NONE) displayNoteActivity();
     switch (ev) {
-        case INPUT_NEXT:    audioNextStation(); displayRequestRepaint(); break;
-        case INPUT_PREV:    audioPrevStation(); displayRequestRepaint(); break;
-        case INPUT_VOL_UP:  audioSetVolume((audioVolume() % 5) + 1);
-                            displayRequestRepaint(); break;
-        case INPUT_VOL_DOWN:audioSetVolume(audioVolume() - 1);
-                            displayRequestRepaint(); break;
-        case INPUT_SLEEP:   powerDeepSleep(); break;
+        case INPUT_NEXT:        audioNextStation(); displayRequestRepaint(); break;
+        case INPUT_PREV:        audioPrevStation(); displayRequestRepaint(); break;
+        case INPUT_VOL_UP:      audioSetVolume((audioVolume() % 5) + 1);
+                                displayRequestRepaint(); break;
+        case INPUT_VOL_DOWN:    audioSetVolume(audioVolume() - 1);
+                                displayRequestRepaint(); break;
+        case INPUT_MODE_TOGGLE: displayToggleMode(); break;
+        case INPUT_PLAY_PAUSE:  audioTogglePause(); displayRequestRepaint(); break;
+        case INPUT_SLEEP:       powerDeepSleep(); break;
         default: break;
     }
 

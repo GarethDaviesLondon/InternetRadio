@@ -43,6 +43,17 @@ bool displayLoadThemeFromSd(const char *path = "/theme.ini");
 void displayDrawMain();
 void displayDrawScroll();
 
+// Home-screen modes. Short-press on the left button cycles. The "big
+// clock" mode hides the now-playing card and station switcher and shows
+// a large HH:MM:SS in the centre; the banner + footer stay put.
+enum DisplayMode {
+    DM_NOW_PLAYING = 0,
+    DM_BIG_CLOCK   = 1,
+};
+void        displaySetMode(DisplayMode m);
+void        displayToggleMode();
+DisplayMode displayActiveMode();
+
 // Lightweight: ask for a full repaint at the next loop tick.
 void displayRequestRepaint();
 bool displayRepaintPending();
