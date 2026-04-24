@@ -14,7 +14,7 @@
 // must run *before* audioBegin claims I2S 0.
 bool audioCodecInit();
 void audioPlayMorseR();           // legacy name; plays the boot chirp
-void audioPlayCwString(const char *text);   // CW any uppercase string at 30 WPM
+void audioPlayCwString(const char *text);   // CW any uppercase string at 35 WPM
 void audioRestoreSession();       // read last volume + station from NVS
 bool audioBegin();                // claims I2S, registers event callback
 bool audioStartLast();            // connect to the remembered station

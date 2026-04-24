@@ -28,6 +28,18 @@ float powerBatteryVolts() { return g_volts; }
 int   powerBatteryLevel() { return g_level; }
 
 void powerDeepSleep() {
+    // Sleep is triggered by a long-press on the Left button, so the pin is
+    // still LOW when we get here. If we arm ext0 (wake on LOW) now the chip
+    // wakes instantly. Wait for the user to release first, with a hard
+    // timeout so a stuck button still lets us sleep (it'll just wake on
+    // release).
+    pinMode(PIN_BTN_LEFT, INPUT_PULLUP);
+    uint32_t t0 = millis();
+    while (digitalRead(PIN_BTN_LEFT) == LOW && (millis() - t0) < 5000) {
+        delay(10);
+    }
+    delay(50);   // debounce after release
+
     // Configure ext0 wake on the Left button going LOW. The regular GPIO
     // pull-up is disabled in deep sleep on ESP32-S3, so we must enable the
     // RTC pull-up explicitly or GPIO 0 floats and may either wake instantly

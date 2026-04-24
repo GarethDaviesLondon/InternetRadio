@@ -156,8 +156,8 @@ static void morseWriteFrames(i2s_chan_handle_t h, uint32_t frames, bool toneOn) 
 }
 
 void audioPlayMorseR() {
-    // Boot callsign: "de CIT" at 30 WPM (de = "from", CIT = ON8CIT short).
-    audioPlayCwString("de CIT");
+    // Boot callsign: "ON8CIT" at 35 WPM.
+    audioPlayCwString("ON8CIT");
 }
 
 static void morseOpenChannel(i2s_chan_handle_t *txOut) {
@@ -201,7 +201,7 @@ static const char *cwLookup(char c) {
     }
 }
 
-// Play an ASCII string as CW at ~30 WPM. Spaces = word gap; unknown
+// Play an ASCII string as CW at ~35 WPM. Spaces = word gap; unknown
 // chars are treated as word gaps. 200 ms silence is led in at the start
 // so the codec / PA finish unmuting before the first element.
 void audioPlayCwString(const char *text) {
@@ -212,7 +212,7 @@ void audioPlayCwString(const char *text) {
     morseOpenChannel(&tx);
     if (!tx) return;
 
-    constexpr uint32_t UNIT_MS = 40;                              // 30 WPM
+    constexpr uint32_t UNIT_MS = 34;                              // 35 WPM (1200/35 ms per dot)
     constexpr uint32_t FR_PER_MS = AUDIO_SAMPLE_RATE / 1000;
     const auto unit = [tx](uint32_t units, bool on) {
         morseWriteFrames(tx, units * UNIT_MS * FR_PER_MS, on);
