@@ -310,8 +310,16 @@ bool audioSelectStation(int idx) {
     return ok;
 }
 
-void audioNextStation() { audioSelectStation((s_chosen + 1) % stationsCount()); }
-void audioPrevStation() { audioSelectStation((s_chosen - 1 + stationsCount()) % stationsCount()); }
+void audioNextStation() {
+    int n = stationsCount();
+    if (n <= 0) return;
+    audioSelectStation((s_chosen + 1) % n);
+}
+void audioPrevStation() {
+    int n = stationsCount();
+    if (n <= 0) return;
+    audioSelectStation((s_chosen - 1 + n) % n);
+}
 
 bool audioPlayAdhoc(const char *url, const char *name) {
     if (!url || !*url) return false;
@@ -419,13 +427,17 @@ unsigned    audioInfoEventCount(){ return s_infoCount; }
 // If the tail is useless ("stream", ";", "") the host is used.
 // Result is truncated to 20 chars to fit the LCD.
 const char *audioStationDisplayName(int idx) {
-    const char *ov = stationsOverrideName(idx);
-    if (ov && *ov) {
-        s_displayName = ov;
+    String nm  = stationsName(idx);
+    String url = stationsUrl(idx);
+    // A stored name that isn't just the URL itself wins. When the user
+    // saved a station via Discover and the source had no name, we
+    // stashed the URL as the name -- in that case fall through to the
+    // URL-derived prettifier below.
+    if (nm.length() && nm != url) {
+        s_displayName = nm;
         if (s_displayName.length() > 20) s_displayName = s_displayName.substring(0, 20);
         return s_displayName.c_str();
     }
-    String url = stationsUrl(idx);
     if (url.length() == 0) { s_displayName = ""; return s_displayName.c_str(); }
 
     int slashSlash = url.indexOf("://");

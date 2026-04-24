@@ -1,14 +1,62 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
-1. Let's implement 6-Axis IMU 
-  a. On move wake the screen up
-  b. On face down pause the music, restart on face up.
-  
-2. Expand station memory - software expandable to 30 using an "Add" from the web interface.
-  Chane the logic from "replace" to "Add" for stations found during discovery.
-  Add in the possibility to delete stations from the stored list. Therefore the list of stations expands and contracts
-  from 0 to 30. [If 30 stations violates already allocated memory reduce the max number of stations, not critical]
 
 
+== Changes made in this round (1-5-2026) ========================================
+
+6-axis IMU
+-----------
+  1. New imu.{h,cpp} module. Auto-probes the I2C bus at 0x6A / 0x6B
+     for the QMI8658C chip-ID register (0x00 = 0x05). If found,
+     initialises it for 125 Hz accel at +/-2 g (gyro left off --
+     not needed for our two use cases, saves power). If not found,
+     logs an I2C scan of all visible devices and disables IMU
+     features -- the rest of the firmware keeps working.
+  2. imuLoop() polls at ~10 Hz from the main loop(). It exposes:
+       - imuMotionEvent()   : one-shot when frame-to-frame accel
+         magnitude jerks by >0.12 g (picked up, tapped, shaken).
+       - imuFaceDownEvent() : debounced 300 ms face-down transition.
+       - imuFaceUpEvent()   : debounced 300 ms face-up transition.
+     Classification is on the smoothed gravity vector (EMA alpha
+     0.2); face-up = Az > +0.6 g, face-down = Az < -0.6 g.
+  3. Motion-wake: imuMotionEvent() -> displayNoteActivity(), so
+     picking up the radio un-dims the backlight without needing to
+     hit a button.
+  4. Face-down pause: when the unit is turned screen-down, audio is
+     auto-paused and a flag remembers we did it. On the next face-up
+     transition, playback resumes (only if WE paused it -- a manual
+     pause with the Left button won't be undone by a flip).
+
+Stations: variable-count list (0..30)
+--------------------------------------
+  5. Station list is now a packed NVS list, not a fixed set of
+     "defaults + per-slot overrides". stationsBegin() restores from
+     NVS; on first boot it seeds from SD /stations.csv or the
+     compiled defaults and persists the seed.
+  6. New public API: stationsMax(), stationsAdd(name,url),
+     stationsDelete(idx), stationsEdit(idx,name,url),
+     stationsResetToDefaults(). The old override-layer functions
+     (stationsOverrideName/Url, stationsResetSlot, stationsSetSlot,
+     stationsApplyOverrides, stationsUseDefaults) are gone.
+  7. Web: home-page Stations card shows N / 30 usage and a "+ Add
+     station" button that opens the existing edit modal with n=-1.
+     The edit modal now has a Delete button (confirm-guarded) that
+     posts to a new /api/station-del endpoint. The list shifts down
+     on delete so the visible order stays contiguous.
+  8. /discover Save defaults to "+ Add to list" instead of
+     "Replace slot 1". The slot-pick dropdown still offers explicit
+     Replace slot X... for deliberate overwrites, which is handy
+     when the list is full.
+  9. CLI: "station add" (interactive append), "station del <n>",
+     "station reset-all" (wipe + reseed defaults). "station reset
+     <n>" (single-slot clear-override) is gone -- there's no longer
+     an override layer to clear.
+ 10. audioStationDisplayName() simplified: stored name wins unless
+     it IS the URL (fallback state from an Add with no name); in
+     that case the URL-derived prettifier runs. Covers Discover
+     saves where the Radio-Browser entry had an empty name.
+ 11. audioNextStation / audioPrevStation guard against an empty
+     list (avoiding the modulo-by-zero that a fully-deleted list
+     would have produced).
 
 
 == Changes made in this round (30-4-2026) =======================================

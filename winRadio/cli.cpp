@@ -94,10 +94,12 @@ static void cmdHelp() {
     outln(F("=== Waveshare Internet Radio ==="));
     outln(F("  help, ?                Show this help"));
     outln(F("  status, stat, s        Show radio status"));
-    outln(F("  stations, list         List preset stations"));
+    outln(F("  stations, list         List saved stations"));
     outln(F("  station <n>, sel <n>   Select station N (1-based)"));
     outln(F("  station edit <n>       Edit friendly name + URL for slot N"));
-    outln(F("  station reset <n>      Revert slot N to the default name + URL"));
+    outln(F("  station add            Append a new station (interactive)"));
+    outln(F("  station del <n>        Delete slot N (list shifts down)"));
+    outln(F("  station reset-all      Wipe list and reseed defaults"));
     outln(F("  next / prev            Cycle stations"));
     outln(F("  volume [n], vol [n]    Show or set volume (1..5)"));
     outln(F("  vol+ / vol- / + / -    Step volume"));
@@ -196,30 +198,51 @@ static void cmdStationEdit(const String &arg) {
     Serial.print(F("Editing slot ")); Serial.print(n);
     Serial.print(F(": currently '")); Serial.print(stationsName(idx));
     Serial.print(F("' @ ")); outln(stationsUrl(idx));
-    outln(F("Leave a field blank to keep the current value. Type 'RESET' to clear overrides."));
+    outln(F("Leave a field blank to keep the current value."));
+    String cur = stationsName(idx);
+    String curUrl = stationsUrl(idx);
     String newName = readLineBlocking("Friendly name: ", false); newName.trim();
-    if (newName.equalsIgnoreCase("RESET")) {
-        stationsResetSlot(idx);
-        outln(F("Slot reset to defaults."));
-        return;
-    }
     String newUrl  = readLineBlocking("URL          : ", false); newUrl.trim();
-    String keepName = (newName.length() ? newName : String(stationsOverrideName(idx)));
-    String keepUrl  = (newUrl.length()  ? newUrl  : String(stationsOverrideUrl(idx)));
-    if (!stationsSetSlot(idx, keepName, keepUrl)) {
-        outln(F("Save failed (NVS full and nothing droppable). No change."));
+    String keepName = (newName.length() ? newName : cur);
+    String keepUrl  = (newUrl.length()  ? newUrl  : curUrl);
+    if (!stationsEdit(idx, keepName, keepUrl)) {
+        outln(F("Save failed (NVS full). No change."));
         return;
     }
-    outln(F("Saved. Use 'station <n>' to play the edited entry."));
+    outln(F("Saved."));
 }
 
-static void cmdStationReset(const String &arg) {
+static void cmdStationAdd() {
+    if (stationsCount() >= stationsMax()) {
+        Serial.print(F("List is full (")); Serial.print(stationsMax());
+        outln(F(" entries). Delete one first."));
+        return;
+    }
+    outln();
+    String newName = readLineBlocking("Friendly name: ", false); newName.trim();
+    String newUrl  = readLineBlocking("URL          : ", false); newUrl.trim();
+    if (newUrl.length() == 0) { outln(F("URL is required.")); return; }
+    int idx = stationsAdd(newName, newUrl);
+    if (idx < 0) { outln(F("Add failed (NVS full or list full).")); return; }
+    Serial.print(F("Added as slot ")); Serial.println(idx + 1);
+}
+
+static void cmdStationDel(const String &arg) {
     int n = arg.toInt();
     if (n < 1 || n > stationsCount()) {
-        outln(F("Usage: station reset <n>")); return;
+        outln(F("Usage: station del <n>")); return;
     }
-    stationsResetSlot(n - 1);
-    Serial.print(F("Slot ")); Serial.print(n); outln(F(" reverted to default."));
+    int wasCurrent = audioCurrentStation();
+    if (!stationsDelete(n - 1)) { outln(F("Delete failed.")); return; }
+    Serial.print(F("Deleted slot ")); Serial.println(n);
+    // If we deleted the playing slot, fall back to slot 0 (if any).
+    if (wasCurrent == n - 1 && stationsCount() > 0) audioSelectStation(0);
+}
+
+static void cmdStationResetAll() {
+    stationsResetToDefaults();
+    Serial.print(F("Station list reseeded. Now ")); Serial.print(stationsCount());
+    outln(F(" entries."));
 }
 
 static void cmdVolume(const String &arg) {
@@ -490,9 +513,13 @@ static void dispatch(const String &raw) {
     else if (eqi(cmd, "station") || eqi(cmd, "sel")) {
         String sub, rest;
         splitArg(arg, sub, rest);
-        if (eqi(sub, "edit"))        cmdStationEdit(rest);
-        else if (eqi(sub, "reset"))  cmdStationReset(rest);
-        else                         cmdSelectStation(arg);
+        if      (eqi(sub, "edit"))       cmdStationEdit(rest);
+        else if (eqi(sub, "add"))        cmdStationAdd();
+        else if (eqi(sub, "del") ||
+                 eqi(sub, "delete"))     cmdStationDel(rest);
+        else if (eqi(sub, "reset-all") ||
+                 eqi(sub, "resetall"))   cmdStationResetAll();
+        else                             cmdSelectStation(arg);
     }
     else if (eqi(cmd, "next"))                                               { audioNextStation(); cmdStatus(); }
     else if (eqi(cmd, "prev"))                                               { audioPrevStation(); cmdStatus(); }

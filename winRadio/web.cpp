@@ -247,39 +247,68 @@ void handleIndex() {
                "onclick=\"openEdit(");
         p += i; p += F(",");
         p += "'"; p += htmlEscape(stationsName(i)); p += "',";
-        p += "'"; p += htmlEscape(stationsUrl(i)); p += "',";
-        p += "'"; p += htmlEscape(stationsOverrideName(i)); p += "',";
-        p += "'"; p += htmlEscape(stationsOverrideUrl(i)); p += "')\">&#9432;</button>";
+        p += "'"; p += htmlEscape(stationsUrl(i)); p += "')\">&#9432;</button>";
         p += F("</div>");
     }
-    p += F("</div></div>");
+    p += F("</div>");
+    // "Add station" tile: opens the same modal with empty fields and
+    // n = count (the Add endpoint treats that as "append").
+    if (n < stationsMax()) {
+        p += F("<p style='margin-top:.6em'>"
+               "<button type=button onclick=\"openAdd()\">+ Add station</button>"
+               " <span style='color:#8aa;font-size:.85em'>");
+        p += n; p += F(" / "); p += stationsMax(); p += F(" slots used</span></p>");
+    } else {
+        p += F("<p style='color:#8aa;font-size:.85em;margin-top:.6em'>List is full (");
+        p += stationsMax(); p += F("). Delete a slot to add more.</p>");
+    }
+    p += F("</div>");
 
-    // Modal + script for /api/station-edit.
+    // Modal + script for /api/station-edit and /api/station-del.
+    // Same modal serves both "edit existing slot" and "add new slot";
+    // Add is triggered by posting n = stationsCount().
     p += F(
       "<div id=modalBg onclick=\"closeEdit(event)\"></div>"
       "<div id=modal>"
-      "<h2>Edit station <span id=mi></span></h2>"
-      "<p style='color:#666;margin-top:-.4em;font-size:.9em'>"
-      "Leave a field blank to use the default. Reset clears overrides.</p>"
+      "<h2 id=mtitle>Edit station <span id=mi></span></h2>"
+      "<p style='color:#666;margin-top:-.4em;font-size:.9em' id=mhint>"
+      "Edit the name and URL for this slot.</p>"
       "<form method=POST action=/api/station-edit>"
       "<input type=hidden name=n id=mn>"
       "<label>Friendly name"
-      "<input name=name id=mname maxlength=60 placeholder='(default)'></label>"
+      "<input name=name id=mname maxlength=60 placeholder='(name)'></label>"
       "<label>URL"
-      "<input name=url id=murl maxlength=200 placeholder='(default)'></label>"
+      "<input name=url id=murl maxlength=200 placeholder='(url)'></label>"
       "<div class=row style='margin-top:.6em'>"
       "<button type=submit>Save</button>"
-      "<button type=submit name=reset value=1 class=warn>Reset</button>"
+      "<button type=button id=mdelBtn class=warn "
+      "onclick=\"if(confirm('Delete this station?')){"
+      "const f=document.createElement('form');f.method='POST';"
+      "f.action='/api/station-del';"
+      "const i=document.createElement('input');i.name='n';i.value=mn.value;"
+      "f.appendChild(i);document.body.appendChild(f);f.submit();}\">Delete</button>"
       "<button type=button onclick=\"closeEdit()\">Cancel</button>"
       "</div></form></div>"
       "<script>"
-      "function openEdit(n,defName,defUrl,ovName,ovUrl){"
+      "function openEdit(n,name,url){"
+      " mtitle.firstChild.nodeValue='Edit station ';"
       " mi.textContent=n+1;"
       " mn.value=n;"
-      " mname.value=ovName||'';"
-      " murl.value=ovUrl||'';"
-      " mname.placeholder=defName||'(default)';"
-      " murl.placeholder=defUrl||'(default)';"
+      " mname.value=name||'';"
+      " murl.value=url||'';"
+      " mhint.textContent='Edit the name and URL for this slot.';"
+      " mdelBtn.style.display='';"
+      " modal.classList.add('show');"
+      " modalBg.classList.add('show');"
+      "}"
+      "function openAdd(){"
+      " mtitle.firstChild.nodeValue='Add station ';"
+      " mi.textContent='';"
+      " mn.value=-1;"
+      " mname.value='';"
+      " murl.value='';"
+      " mhint.textContent='Add a new station to the end of the list.';"
+      " mdelBtn.style.display='none';"
       " modal.classList.add('show');"
       " modalBg.classList.add('show');"
       "}"
@@ -342,20 +371,48 @@ void handleStation() {
     s_http.send(302);
 }
 
+// POST /api/station-edit
+// n = 0..count-1         : edit in place
+// n = count or n = -1    : append (Add)
+// The AJAX save on /discover uses n = count and fresh (name,url) to
+// append a discovered station; the home-page modal uses the same path
+// with n set to the specific slot.
 void handleStationEdit() {
-    if (!s_http.hasArg("n")) { s_http.send(400, "text/plain", "missing n"); return; }
-    int n = s_http.arg("n").toInt();
-    if (n < 0 || n >= stationsCount()) { s_http.send(400, "text/plain", "out of range"); return; }
-    if (s_http.hasArg("reset")) {
-        stationsResetSlot(n);
+    if (!s_http.hasArg("n"))   { s_http.send(400, "text/plain", "missing n"); return; }
+    if (!s_http.hasArg("url")) { s_http.send(400, "text/plain", "missing url"); return; }
+    int n       = s_http.arg("n").toInt();
+    String name = s_http.arg("name"); name.trim();
+    String url  = s_http.arg("url");  url.trim();
+    if (url.length() == 0) { s_http.send(400, "text/plain", "empty url"); return; }
+
+    if (n < 0 || n >= stationsCount()) {
+        // Add new entry.
+        if (stationsCount() >= stationsMax()) {
+            s_http.send(409, "text/plain", "station list full");
+            return;
+        }
+        int idx = stationsAdd(name, url);
+        if (idx < 0) { s_http.send(500, "text/plain", "save failed"); return; }
     } else {
-        String name = s_http.arg("name"); name.trim();
-        String url  = s_http.arg("url");  url.trim();
-        if (!stationsSetSlot(n, name, url)) {
-            s_http.send(500, "text/plain", "save failed (NVS full)");
+        if (!stationsEdit(n, name, url)) {
+            s_http.send(500, "text/plain", "save failed");
             return;
         }
     }
+    s_http.sendHeader("Location", "/");
+    s_http.send(302);
+}
+
+// POST /api/station-del  (n = slot index)
+void handleStationDel() {
+    if (!s_http.hasArg("n")) { s_http.send(400, "text/plain", "missing n"); return; }
+    int n = s_http.arg("n").toInt();
+    if (n < 0 || n >= stationsCount()) { s_http.send(400, "text/plain", "out of range"); return; }
+    int wasCurrent = audioCurrentStation();
+    if (!stationsDelete(n)) { s_http.send(500, "text/plain", "delete failed"); return; }
+    // If we deleted the currently-playing slot, fall back to slot 0
+    // (or stop audio if the list is now empty).
+    if (wasCurrent == n && stationsCount() > 0) audioSelectStation(0);
     s_http.sendHeader("Location", "/");
     s_http.send(302);
 }
@@ -588,16 +645,22 @@ void handleDiscover() {
                 p += htmlEscape(h.name);
                 p += F("'>&#9654; Listen</button>");
 
-                // Save is AJAX so the results page stays put (no
-                // redirect back to /). Data attributes carry the
-                // candidate, a <select> on the left picks the slot.
+                // Save is AJAX so the results page stays put. Default
+                // action is Add (append to the list). A secondary
+                // <select> lets the user target an existing slot for
+                // replacement, for explicit overwrite cases.
                 p += F("<form class=saveForm data-name='");
                 p += htmlEscape(h.name); p += F("' data-url='");
                 p += htmlEscape(h.url);
                 p += F("' style='display:flex;gap:.3em;flex:1'>");
                 p += F("<select class=slotPick style='flex:1'>");
+                if (nst < stationsMax()) {
+                    p += F("<option value=-1 selected>+ Add to list</option>");
+                } else {
+                    p += F("<option value=-1 disabled selected>List full &mdash; replace?</option>");
+                }
                 for (int s = 0; s < nst; s++) {
-                    p += F("<option value="); p += s; p += F(">Slot ");
+                    p += F("<option value="); p += s; p += F(">Replace slot ");
                     p += (s + 1); p += F(": ");
                     p += htmlEscape(audioStationDisplayName(s));
                     p += F("</option>");
@@ -730,6 +793,7 @@ void webBegin() {
     s_http.on("/api/state",    HTTP_GET,  handleState);
     s_http.on("/api/station",       HTTP_POST, handleStation);
     s_http.on("/api/station-edit",  HTTP_POST, handleStationEdit);
+    s_http.on("/api/station-del",   HTTP_POST, handleStationDel);
     s_http.on("/api/next",     HTTP_POST, handleNext);
     s_http.on("/api/prev",     HTTP_POST, handlePrev);
     s_http.on("/api/play",     HTTP_POST, handlePlay);

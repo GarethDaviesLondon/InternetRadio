@@ -17,6 +17,7 @@
 #include "web.h"
 #include "provision.h"
 #include "clock.h"
+#include "imu.h"
 
 // --- WiFi connect UX ------------------------------------------------------
 
@@ -121,15 +122,14 @@ void setup() {
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
     inputBegin();
     powerBegin();
+    imuBegin();   // accel + gyro for motion-wake and face-down-pause
 
-    // SD card is optional. If it mounts, use /theme.ini and /stations.csv
-    // to override the compiled defaults; otherwise silently continue.
-    if (storageSdMount()) {
-        stationsLoadFromSd();
-    }
-    // NVS per-slot overrides (set via the web modal or CLI 'station edit')
-    // are applied last so they win over SD / preset name+URL.
-    stationsApplyOverrides();
+    // SD card is optional. If it mounts, /theme.ini and (on first boot)
+    // /stations.csv feed the station list; otherwise silently continue.
+    storageSdMount();
+    // Load the active station list (NVS on later boots, SD CSV or
+    // compiled defaults on first boot).
+    stationsBegin();
 
     audioCodecInit();
     audioPlayMorseR();   // dot-dash-dot self-test before Audio lib grabs I2S 0
@@ -235,6 +235,28 @@ void loop() {
         case INPUT_PLAY_PAUSE:  audioTogglePause(); displayRequestRepaint(); break;
         case INPUT_SLEEP:       powerDeepSleep(); break;
         default: break;
+    }
+
+    // IMU: motion wakes the screen; face-down / face-up toggles pause
+    // automatically so you can silence the radio by laying it face-
+    // down on the table, and it resumes when you pick it up.
+    imuLoop();
+    if (imuMotionEvent()) displayNoteActivity();
+    static bool s_imuPausedByFaceDown = false;
+    if (imuFaceDownEvent()) {
+        if (!audioIsPaused()) {
+            audioTogglePause();
+            s_imuPausedByFaceDown = true;
+            displayRequestRepaint();
+        }
+    }
+    if (imuFaceUpEvent()) {
+        if (s_imuPausedByFaceDown && audioIsPaused()) {
+            audioTogglePause();
+            displayRequestRepaint();
+        }
+        s_imuPausedByFaceDown = false;
+        displayNoteActivity();
     }
 
     cliPoll();
