@@ -1,5 +1,35 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
+Clock interface: Please revert to the large 7 segment LED format for time.
+Volume show should be smaller in height and at the bottom (just above the footer)
+There is no now-playing information scrolling at all, it may be behind the volume control.
+
+Search Page - when saving, don't navigate back to home after. Do the save but keep the
+search results in place.
+
+When I saved Heart 80's (new station) to slot 3 also overwrote seemed to overwrite slot 1 on the refresh
+of home, it hadn't as all OK -  there is some condition where slot 1 on the home page shows the "now playing" 
+station, rather than the contents of slot 1 in the list. It's temporary as it does reset OK.
+
+The API information should be removed from the Home page and placed on it's own page with a navivation text
+at the bottom of the home page.
+
+The discover button should move to be located inside the section with the saved station slots.
+
+The reboot button should be moved to the bottom of the page.
+
+Still bug on empty search results. Use Sequence. Discover->Search->Select->Save->auto Home->Discover->Search
+(The search was the same on each, 80's genre from drop down list)
+Results (0)
+No hits.
+
+Last error: HTTP -1 from https://all.api.radio-browser.info/json/stations/search?order=votes&reverse=true&hidebroken=true&limit=40&tag=80s
+
+The first time hitting "Discover" after reboot - when the browser hasn't cached - the load-time is long page-to-page
+can we do a modal popup between pages for user feedback.
+
+
+
 
 == Changes made in this round (29-4-2026) =======================================
 
