@@ -13,6 +13,7 @@
 // internal-linkage symbols and fail.
 const char *on8citPageCss();
 const char *on8citLogoSvg();
+const char *on8citFaviconSvg();
 
 namespace {
 WebServer s_http(80);
@@ -41,6 +42,7 @@ String renderIndex() {
     String p; p.reserve(3000);
     p += F("<!doctype html><html><head><meta charset=utf-8>"
            "<meta name=viewport content='width=device-width,initial-scale=1'>"
+           "<link rel=icon type=image/svg+xml href=/favicon.svg>"
            "<title>ON8CIT WebRadio &mdash; Setup</title>"
            "<style>");
     p += on8citPageCss();
@@ -139,6 +141,11 @@ void handleCaptive() {
     s_http.sendHeader("Location", "/");
     s_http.send(302);
 }
+
+void handleFavicon() {
+    s_http.sendHeader("Cache-Control", "max-age=86400");
+    s_http.send(200, "image/svg+xml", on8citFaviconSvg());
+}
 } // namespace
 
 static void provisionStartInternal(bool keepSta) {
@@ -168,7 +175,9 @@ static void provisionStartInternal(bool keepSta) {
         Serial.printf("provision: mDNS up at http://%s.local\r\n", kApMdnsHost);
     }
 
-    s_http.on("/",        HTTP_GET,  handleIndex);
+    s_http.on("/",            HTTP_GET,  handleIndex);
+    s_http.on("/favicon.svg", HTTP_GET,  handleFavicon);
+    s_http.on("/favicon.ico", HTTP_GET,  handleFavicon);
     s_http.on("/save",    HTTP_POST, handleSave);
     s_http.on("/rescan",  HTTP_GET,  handleRescan);
     s_http.onNotFound(handleCaptive);

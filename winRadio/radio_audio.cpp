@@ -153,8 +153,8 @@ static void morseWriteFrames(i2s_chan_handle_t h, uint32_t frames, bool toneOn) 
 }
 
 void audioPlayMorseR() {
-    // Legacy wrapper: plays "de ON8CIT" instead of the original "R".
-    audioPlayCwString("de ON8CIT");
+    // Boot callsign: "de CIT" at 30 WPM (de = "from", CIT = ON8CIT short).
+    audioPlayCwString("de CIT");
 }
 
 static void morseOpenChannel(i2s_chan_handle_t *txOut) {
