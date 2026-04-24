@@ -1,20 +1,87 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
-Scrolling Name and On Air haas a visible box on screen, please remove this box but keep the scrolling text.
-"On Air" should be above the scrolling station name, and "Now Playing" above the scrolling track name
-On the clock face - the scrolling now playing has a different background colour, it should be the same, on 
-this screen it should be 100% width.
-When a station name such as "Radio Caroline" is less than the width of the screen and doesn't need to scroll it 
-flickers, please stop the flicker
-When play is paused please overlay a large "||" symbol on the screen whn in Now PLaying mode.
-display a small version of "||" wuth the text "Playback Paused" on the clock screen, don't overlay the clock.
 
-Add to the start splash screen "By Gareth Davies, 2026"
 
-Please implement the webradio discovery as a page on the WebUI with one click add to favourites, and a 
-listen live (before saving to check) option. Implement a selection between the different sources of stations.
-Your suggestions on genre and search good, add geography options to search if possible.
+== Changes made in this round (28-4-2026) =======================================
 
-Don't implement the MP£ player settings yet.
+  1. Scroll-strip borders removed.
+     - The 1 px frames around the on-air and song-title tickers are
+       gone. Only the outer 1 px border of the now-playing card
+       remains.
+
+  2. Labels relocated.
+     - "On Air" is now a centred label above the scrolling station-
+       name strip.
+     - "Now Playing" is a centred label above the scrolling song-
+       title strip.
+     - The old "NOW PLAYING" card header and top-right play/pause
+       glyph are gone (the big pause overlay replaces the corner
+       indicator).
+
+  3. Big-clock song strip: full-width + matching background.
+     - In clock mode the song ticker is now drawn directly on the
+       panel at the full 240 px width, in g_theme.bg -- no more
+       contrast mismatch with the rest of the screen. sprite2 is
+       202 wide so it can't do full width itself; the clock path
+       uses gfx-> instead and skips the sprite.
+
+  4. Flicker fix on static on-air / song strips.
+     - displayDrawScroll() now caches the last-drawn text and
+       scroll position. The sprite is only re-filled + blitted when
+       something actually changed. Short non-scrolling names
+       ("Radio Caroline") are drawn exactly once until the ICY
+       string changes.
+
+  5. Pause overlay in NP mode.
+     - When audioIsPaused() a large "||" (two 18x54 yellow rounded
+       bars) is painted over the centre of the NP card after the
+       rest of the content renders.
+
+  6. Pause indicator in clock mode.
+     - Small "||" + "Playback Paused" label at y=205 below the date.
+       Clear of the big clock face, doesn't overlay the time.
+
+  7. Splash credit.
+     - "By Gareth Davies, 2026" added to the bottom of
+       displayShowBootSplash in muted grey; firmware version /
+       status lines slide up to make room.
+
+  8. Web /discover page (new).
+     - New discover.{h,cpp} module. Radio-Browser Community API
+       (https://api.radio-browser.info) client with a hand-rolled
+       JSON parser so no lib_deps change was needed.
+     - Tries de2 / de1 / at1 / all regional mirrors in turn so a
+       transient DNS / cert issue on one node doesn't block
+       discovery.
+     - DiscoverHit carries name, url, homepage, favicon, tags,
+       country, codec, bitrate.
+     - Search fields: name, genre/tag (dropdown populated from the
+       top 24 server tags), country (dropdown populated from the
+       full country list). Ordered by community votes, descending,
+       with hidebroken=true so the server filters dead streams for
+       us.
+     - Source-picker dropdown (Radio-Browser today; sourceName()
+       enum + discoverSearch API are set up so adding a second
+       source is additive).
+     - Each result has "Listen" (ad-hoc play without touching the
+       saved list -- see below) and "Save" (slot dropdown ->
+       /api/station-edit, reusing the existing editable-stations
+       machinery).
+     - Home page gains a cyan Discover button in the Controls card
+       and a "discover" link in the footer.
+     - /api/listen POST url= name= -> audioPlayAdhoc -> 302 back.
+
+  9. audioPlayAdhoc(url, name).
+     - Ad-hoc playback that doesn't touch the saved stations list
+       or the current-slot index. Sets the ICY display name
+       directly so the LCD immediately reflects the preview.
+     - Used by /api/listen; also available for future "try a URL"
+       flows (e.g. CLI `play url <http://...>`).
+
+MP3 player from SD -- intentionally skipped this round per the user
+request. Design notes from last round still apply.
+
+
+== Changes made in this round (27-4-2026) =======================================
 
 == Changes made in this round (27-4-2026) =======================================
 
