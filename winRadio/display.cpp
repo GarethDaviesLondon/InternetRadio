@@ -482,20 +482,25 @@ void displayDrawScroll() {
     if (s_mode == DM_BIG_CLOCK) {
         // Clock mode: full-width ticker painted directly on the panel
         // with the matching bg colour (no sprite -- sprite2 is 202 wide).
-        bool songScroll = ((int)sSong.length() * 14) > 240;
+        // Arduino_GFX uses print() with a cursor rather than drawString.
+        // setTextSize(2) on its built-in 5x7 font gives ~12 px per char.
+        const int charW = 12;
+        bool songScroll = ((int)sSong.length() * charW) > 240;
         if (songScroll) {
             s_songPosition--;
-            if (s_songPosition < -(int)(sSong.length() * 14)) s_songPosition = 240;
+            if (s_songPosition < -(int)(sSong.length() * charW)) s_songPosition = 240;
         } else {
-            // Static -- centre and only redraw on state change.
-            int x = (240 - (int)sSong.length() * 14) / 2;
+            int x = (240 - (int)sSong.length() * charW) / 2;
             if (x < 0) x = 0;
             s_songPosition = x;
         }
         if (songScroll || sSong != s_lastSong || s_lastMode != s_mode) {
             s_gfx->fillRect(0, kSongScrollY, 240, kSongScrollH, bg);
-            s_gfx->setTextColor(TFT_YELLOW, bg);
-            s_gfx->drawString(sSong, s_songPosition, kSongScrollY, 2);
+            s_gfx->setTextColor(RGB565_YELLOW, bg);
+            s_gfx->setTextSize(2);
+            s_gfx->setCursor(s_songPosition, kSongScrollY);
+            s_gfx->print(sSong);
+            s_gfx->setTextSize(1);
             s_lastSong = sSong;
             s_lastSongPos = s_songPosition;
             s_lastMode = s_mode;
