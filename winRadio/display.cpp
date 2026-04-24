@@ -5,6 +5,7 @@
 #include "power.h"
 #include "stations.h"
 #include "storage.h"
+#include "clock.h"
 #include "NotoSansBold15.h"
 
 #include <cstdio>
@@ -33,8 +34,6 @@ static Arduino_GFX     *s_gfx = nullptr;
 static LGFX_Sprite      s_sprite;
 static LGFX_Sprite      s_sprite2;
 static int              s_songPosition = -220;
-static int              s_graph[14] = {0};
-static const String     s_btnLabels[3] = {"P","S","V"};
 static bool             s_repaint = false;
 
 // Backlight: full brightness while active, dim after kIdleDimMs of no
@@ -45,6 +44,16 @@ static constexpr uint8_t  kBacklightDim    = 20;
 static constexpr uint32_t kIdleDimMs       = 60000;   // 60 s
 static uint32_t           s_lastActivityMs = 0;
 static uint8_t            s_backlightLevel = kBacklightActive;
+
+// Layout constants for the redesigned home screen (240x240).
+// Top strip: 0..46 -> banner (brand + battery) + clock row.
+// Middle:   48..170 -> now-playing card (left ~90%) + volume column (right).
+// Slider:  172..214 -> three-row station switcher with ^/v arrows.
+// Footer:  216..240 -> RSSI + bitrate.
+constexpr int kSongScrollX = 6;
+constexpr int kSongScrollY = 150;
+constexpr int kSongScrollW = 202;
+constexpr int kSongScrollH = 16;
 
 // --- Theme ---------------------------------------------------------------
 
@@ -163,7 +172,7 @@ void displayBegin() {
     // contiguous DMA-capable internal SRAM.
     s_sprite.setPsram(true);
     s_sprite.createSprite(DISPLAY_W, DISPLAY_H);
-    s_sprite2.createSprite(230, 16);
+    s_sprite2.createSprite(kSongScrollW, kSongScrollH);
     s_sprite.loadFont(NotoSansBold15);
 
     buildDefaultTheme();
@@ -440,10 +449,10 @@ static void blitSprite(LGFX_Sprite &sp, int dx, int dy, int w, int h) {
 
 void displayDrawScroll() {
     s_songPosition--;
-    if (s_songPosition < -220) s_songPosition = 220;
+    if (s_songPosition < -220) s_songPosition = kSongScrollW;
     s_sprite2.fillSprite(TFT_BLACK);
     s_sprite2.drawString(audioSongPlaying(), s_songPosition, 5);
-    blitSprite(s_sprite2, 5, 213, 230, 16);
+    blitSprite(s_sprite2, kSongScrollX, kSongScrollY, kSongScrollW, kSongScrollH);
 }
 
 void displayDrawMain() {
@@ -454,123 +463,134 @@ void displayDrawMain() {
 
     s_sprite.fillRect(0, 0, 240, 240, bg);
 
-    // station list frame
-    s_sprite.fillRect(4, 20, 150, 172, BLACK);
-    s_sprite.drawRect(4, 20, 150, 172, light);
-    // top-right info frame (RSSI / battery)
-    s_sprite.fillRect(160, 20, 74, 60, BLACK);
-    s_sprite.drawRect(160, 20, 74, 60, light);
-    s_sprite.fillRect(174, 24, 5, 10, TFT_RED);
-    s_sprite.fillRect(174, 37, 5, 10, TFT_GREEN);
+    // ---- Top banner: logo + brand + battery --------------------------
+    // Mini broadcast-waves logo (concentric rings + core) on the left.
+    s_sprite.fillRect(0, 0, 240, 24, TFT_BLACK);
+    int lx = 12, ly = 12;
+    s_sprite.drawCircle(lx, ly, 10, 0x5220);                    // faint ring
+    s_sprite.drawCircle(lx, ly,  7, 0xC4C0);                    // mid ring
+    s_sprite.drawCircle(lx, ly,  4, TFT_YELLOW);                // core ring
+    s_sprite.fillCircle(lx, ly,  2, TFT_YELLOW);
+    s_sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+    s_sprite.drawString("ON8CIT",   28, 2, 2);
+    s_sprite.setTextColor(TFT_CYAN, TFT_BLACK);
+    s_sprite.drawString("WebRadio", 90, 2, 2);
 
-    // battery
-    int batLevel = powerBatteryLevel();
-    s_sprite.drawRect(210, 36, 17, 10, TFT_GREEN);
-    s_sprite.fillRect(212, 38, batLevel, 6, TFT_GREEN);
-    s_sprite.fillRect(227, 39, 2, 4, TFT_GREEN);
+    // Battery pill at the right edge of the banner.
+    int batLevel = powerBatteryLevel();   // 0..13
+    int bx = 190, by = 6;
+    s_sprite.drawRect(bx, by, 40, 12, TFT_GREEN);
+    s_sprite.fillRect(bx + 2, by + 2, (batLevel * 36) / 13, 8, TFT_GREEN);
+    s_sprite.fillRect(bx + 40, by + 3, 2, 6, TFT_GREEN);        // nub
 
-    // bitrate frame
-    s_sprite.fillRect(160, 176, 74, 16, BLACK);
-    s_sprite.drawRect(160, 176, 74, 16, light);
-
-    // volume bar
-    int vol = audioVolume();
-    s_sprite.fillRoundRect(160, 140, 74, 3, 2, g_theme.volumeBar);
-    s_sprite.fillRoundRect(146 + (vol * 15), 137, 14, 8, 2, g[2]);
-    s_sprite.fillRoundRect(149 + (vol * 15), 139,  8, 4, 2, g[10]);
-
-    // song title strip frame (text comes from displayDrawScroll)
-    s_sprite.fillRect(4, 212, 232, 18, BLACK);
-    s_sprite.drawRect(4, 212, 232, 18, light);
-
-    // station list slider rail
-    s_sprite.fillRect(149, 20, 5, 172, g[11]);
-    int sliderPos = 12;
-    s_sprite.fillRect(149, sliderPos + 8, 5, 20, g[2]);
-    s_sprite.fillRect(151, sliderPos + 12, 1, 12, g[16]);
-
-    // accent bars
-    s_sprite.fillRect(4, 7, 150, 3, orange);
-    s_sprite.fillRect(190, 5, 45, 3, orange);
-    s_sprite.fillRect(160, 194, 74, 1, orange);
-    s_sprite.fillRect(190, 11, 45, 3, g[6]);
-
-    // outer chrome
-    s_sprite.drawRect(0, 0, 239, 239, light);
-    s_sprite.fillRect(5, 234, 230, 2, g[13]);
-
-    // ON8CIT WebRadio banner (replaces the split STATIONS / WEB labels).
+    // ---- Clock strip (day date-month + HH:MM:SS) ---------------------
+    s_sprite.fillRect(0, 24, 240, 22, bg);
+    char dateBuf[24], timeBuf[16];
+    clockFormatDate(dateBuf, sizeof(dateBuf));
+    clockFormatTime(timeBuf, sizeof(timeBuf));
+    s_sprite.setTextColor(g[2], bg);
+    if (dateBuf[0]) s_sprite.drawString(String(dateBuf), 4,  28, 2);
+    else            s_sprite.drawString("(time syncing)",  4, 28, 1);
     s_sprite.setTextColor(TFT_YELLOW, bg);
-    s_sprite.drawString("ON8CIT", 8, 2, 2);
-    s_sprite.setTextColor(TFT_CYAN, bg);
-    s_sprite.drawString("WebRadio", 70, 2, 2);
+    if (timeBuf[0]) s_sprite.drawString(String(timeBuf), 166, 28, 2);
 
-    // Now-playing card. Replaces the 8-line station list.
+    // Divider under the clock.
+    s_sprite.fillRect(0, 46, 240, 1, orange);
+
+    // ---- Now-playing card (left 90%) + volume column (right) ---------
+    const int cpX = 4, cpY = 50, cpW = 206, cpH = 122;
+    s_sprite.fillRect(cpX, cpY, cpW, cpH, TFT_BLACK);
+    s_sprite.drawRect(cpX, cpY, cpW, cpH, light);
+
+    s_sprite.setTextColor(orange, TFT_BLACK);
+    s_sprite.drawString("NOW PLAYING", cpX + 8, cpY + 4, 1);
+
     int chosen = audioCurrentStation();
     int nsta   = stationsCount();
-    const int pX = 4, pY = 20, pW = 150, pH = 172;
 
-    s_sprite.setTextColor(TFT_ORANGE, TFT_BLACK);
-    s_sprite.drawString("NOW PLAYING", pX + 8, pY + 6, 1);
-
+    // Big display name (override > ICY > URL-derived).
     String stName = audioStationDisplayName(chosen);
-    if (stName.length() > 13) stName = stName.substring(0, 13);
+    if (stName.length() > 16) stName = stName.substring(0, 16);
     s_sprite.setTextColor(TFT_GREEN, TFT_BLACK);
-    s_sprite.drawString(stName, pX + 8, pY + 22, 2);
+    s_sprite.drawString(stName, cpX + 8, cpY + 24, 2);
 
-    char idxBuf[24];
-    snprintf(idxBuf, sizeof(idxBuf), "Station %d of %d", chosen + 1, nsta);
-    s_sprite.setTextColor(g[2], TFT_BLACK);
-    s_sprite.drawString(idxBuf, pX + 8, pY + 48, 1);
+    // Bitrate / slot row.
+    char sub[32];
+    snprintf(sub, sizeof(sub), "Slot %d of %d", chosen + 1, nsta);
+    s_sprite.setTextColor(g[4], TFT_BLACK);
+    s_sprite.drawString(sub, cpX + 8, cpY + 52, 1);
 
-    // ICY-reported station name if the stream advertised one.
-    String icy = audioCurStation();
-    if (icy.length()) {
-        if (icy.length() > 20) icy = icy.substring(0, 20);
-        s_sprite.setTextColor(g[4], TFT_BLACK);
-        s_sprite.drawString("ON AIR", pX + 8, pY + 72, 1);
-        s_sprite.setTextColor(TFT_CYAN, TFT_BLACK);
-        s_sprite.drawString(icy, pX + 8, pY + 86, 1);
+    // Optional ICY "on air" line (skipped if we already used it as the
+    // big name above -- audioStationDisplayName falls through to ICY
+    // second, so an override + ICY both set shows override big, ICY
+    // small here).
+    const char *icy = audioCurStation();
+    if (icy && *icy && stName != icy) {
+        String s = icy;
+        if (s.length() > 26) s = s.substring(0, 26);
+        s_sprite.setTextColor(g[2], TFT_BLACK);
+        s_sprite.drawString("On air: " + s, cpX + 8, cpY + 70, 1);
     }
 
-    // Hint: cycle with button S.
+    // Song-title scroll strip is blitted by displayDrawScroll() at the
+    // bottom of the card (y=kSongScrollY=150, inside cpY+cpH window).
+    s_sprite.drawRect(kSongScrollX - 2, kSongScrollY - 2,
+                      kSongScrollW + 4, kSongScrollH + 4, g[11]);
+
+    // ---- Volume column on the right ---------------------------------
+    const int vx = cpX + cpW + 2;        // ~212
+    const int vyTop = cpY + 4, vyBot = cpY + cpH - 4;
+    // ^ placeholder (filled triangle pointing up)
+    s_sprite.fillTriangle(vx + 10, vyTop, vx + 3, vyTop + 10, vx + 17, vyTop + 10, g[2]);
+    // v placeholder
+    s_sprite.fillTriangle(vx + 10, vyBot, vx + 3, vyBot - 10, vx + 17, vyBot - 10, g[2]);
+    // Five-segment vertical bar mapping to the audioVolume() 1..5.
+    int vol = audioVolume();
+    const int segX = vx + 6, segW = 8;
+    const int segTop = vyTop + 16, segBot = vyBot - 16;
+    const int segTotal = segBot - segTop;
+    const int gap = 2, segH = (segTotal - 4 * gap) / 5;
+    for (int i = 0; i < 5; i++) {
+        // Segments are drawn top-to-bottom but meaning is bottom-to-top
+        // (i.e. segment 0 = loudest, segment 4 = quietest). We fill from
+        // the bottom up to `vol`.
+        int y = segBot - (i + 1) * segH - i * gap;
+        uint16_t c = (i < vol) ? g_theme.volumeBar : g[11];
+        s_sprite.fillRect(segX, y, segW, segH, c);
+    }
+
+    // ---- Station switcher (3 rows, current highlighted) -------------
+    const int swY = 174, swH = 42;
+    s_sprite.fillRect(0, swY, 240, swH, TFT_BLACK);
+    int prev = (chosen - 1 + nsta) % nsta;
+    int next = (chosen + 1) % nsta;
+    String nmP = audioStationDisplayName(prev); if (nmP.length() > 24) nmP = nmP.substring(0, 24);
+    String nmN = audioStationDisplayName(next); if (nmN.length() > 24) nmN = nmN.substring(0, 24);
+    // ^ (prev)
+    s_sprite.fillTriangle(8, swY + 6, 2, swY + 12, 14, swY + 12, g[4]);
     s_sprite.setTextColor(g[6], TFT_BLACK);
-    s_sprite.drawString("[S] = next", pX + 8, pY + 152, 1);
-    (void)pH;  // reserved for future layout tweaks
+    s_sprite.drawString(nmP, 22, swY + 3, 1);
+    // highlighted current
+    s_sprite.fillRoundRect(4, swY + 14, 232, 16, 3, bg);
+    s_sprite.drawRoundRect(4, swY + 14, 232, 16, 3, orange);
+    s_sprite.setTextColor(TFT_YELLOW, bg);
+    s_sprite.drawString(stName, 10, swY + 16, 2);
+    // v (next)
+    s_sprite.fillTriangle(8, swY + 36, 2, swY + 30, 14, swY + 30, g[4]);
+    s_sprite.setTextColor(g[6], TFT_BLACK);
+    s_sprite.drawString(nmN, 22, swY + 31, 1);
 
-    s_sprite.setTextColor(g[6], bg);
-    s_sprite.drawString("SONG PLAYING", 6, 200, 1);
-    s_sprite.drawString("VOLUME", 160, 124, 1);
+    // ---- Footer: RSSI + bitrate -------------------------------------
+    s_sprite.fillRect(0, 218, 240, 22, bg);
+    s_sprite.fillRect(0, 217, 240, 1, orange);
+    char foot[48];
+    snprintf(foot, sizeof(foot), "RSSI %d dBm   BITRATE %ld kbps",
+             netRssi(), audioBitrate());
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString(foot, 6, 223, 1);
 
-    // wifi corner block
-    s_sprite.setTextColor(g[10], TFT_BLACK);
-    s_sprite.drawString("W", 165, 24, 1);
-    s_sprite.drawString("I", 165, 34, 1);
-    s_sprite.drawString("F", 165, 44, 1);
-    s_sprite.drawString("I", 165, 54, 1);
-
-    s_sprite.setTextColor(TFT_GREEN, TFT_BLACK);
-    s_sprite.drawString("BITRATE " + String(audioBitrate()), 164, 180, 1);
-    s_sprite.drawString("RSSI:" + String(netRssi()),         183, 24, 1);
-    s_sprite.drawString(String(powerBatteryVolts()),         183, 37, 1);
-
-    s_sprite.setTextColor(g[11], bg);
-    s_sprite.drawString(FIRMWARE_NAME, 122, 200, 1);
-
-    // graph (random sparkline while connected)
-    bool live = netConnected();
-    for (int i = 0; i < 12; i++) {
-        if (live) s_graph[i] = random(1, 5);
-        for (int j = 0; j < s_graph[i]; j++)
-            s_sprite.fillRect(172 + (i * 5), 71 - j * 4, 4, 3, g[4]);
-    }
-
-    // virtual buttons
-    s_sprite.setTextColor(g[16], g[5]);
-    for (int i = 0; i < 3; i++) {
-        s_sprite.fillRoundRect(160 + (i * 26), 152, 22, 18, 4, g[5]);
-        s_sprite.drawString(s_btnLabels[i], 166 + (i * 26), 154);
-    }
+    // Mute unused globals warnings for variables kept for future tweaks.
+    (void)g; (void)orange; (void)light;
 
     blitSprite(s_sprite, 0, 0, DISPLAY_W, DISPLAY_H);
     s_repaint = false;
