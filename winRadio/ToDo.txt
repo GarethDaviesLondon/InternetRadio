@@ -1,16 +1,174 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-UPdate display with the Station Scroll buttons to be 50% left.right split. Title above the box "<<Prev" and "Next>>" centererd. In the box the name of the station.
-the "on air: " line. Please split this one line centered "On Air", next line the name of the station, scroll if bigger than the 90% width of the screen. 
-Remove the "Slot X of Y" 
-Create a play/pause button ("||" ">")
-Draw a one pixel box around the Now Playing box.
-Leave an additional to what is there already 2-3 pixels gap between clock and top of this box.
-A mode where we can hide the now playing and just be a clock with a large display (maintain top and bottom banners)
-Short press on the power button to change between the modes
-Double click on the power button to play/pause
-A long press on the power button to go to deep sleep
-A long press to wake up from deep sleep.
+
+== Changes made in this round (27-4-2026) =======================================
+
+  1. Station switcher is now a 50/50 split with titled boxes:
+     <<Prev | Next>> headers (centred), a 1 px orange-outlined box
+     below each carrying the previous / next station display name.
+     Current station is shown only in the now-playing card; the
+     switcher is purely the two adjacent slots.
+
+  2. "On Air" line re-laid-out as two rows, centred:
+     - "On Air" label (static, centred).
+     - Station name in a bordered strip below it. If the name is
+       wider than the strip (~14 chars at font 2) it scrolls via
+       s_sprite2 with its own scroll position; shorter names sit
+       static and centred.
+     - Driven from displayDrawScroll() so it advances on the same
+       30 ms tick as the song ticker.
+
+  3. "Slot X of Y" removed from the now-playing card.
+
+  4. Play / Pause indicator in the top-right of the now-playing
+     card. Filled green triangle when playing, two yellow bars when
+     paused. Updates on the same repaint tick as the rest.
+
+  5. 1 px border around the whole now-playing box; 3 px gap between
+     the clock strip and the top of the card (was touching the
+     orange divider before).
+
+  6. Big-clock mode. New DisplayMode enum {DM_NOW_PLAYING,
+     DM_BIG_CLOCK}. Big-clock view keeps the banner + clock strip +
+     footer; the middle band shows a large HH:MM:SS (font 7) with
+     the date centred below. "(syncing)" placeholder until SNTP
+     locks.
+
+  7. Left-button gestures (input.cpp rewritten).
+     - Short press (release inside 2 s): MODE_TOGGLE -> cycle the
+       display mode.
+     - Double-click (two short presses within 350 ms): PLAY_PAUSE
+       -> audioTogglePause().
+     - Long press (held >= 2 s): SLEEP -> powerDeepSleep(). Fires
+       while the button is still held; the state machine parks in
+       L_LONG_FIRED until release so SLEEP isn't re-emitted.
+     - If R goes down while L is held the machine yields to
+       inputRebootCombo(). The right-button VOL_UP event is
+       suppressed for the duration of any L hold so the reboot
+       combo doesn't spam volume changes.
+     - Wake from deep sleep is unchanged: ext0 on GPIO 0 still
+       resumes on any L press.
+
+  8. Web controls: new Play/Pause button next to Prev/Next,
+     /api/play endpoint toggles, /api/state exposes a "paused"
+     field.
+
+
+== Design notes: MP3 player from SD (item 6) ====================================
+
+Architecture sketch. Not implemented yet; captured here so the
+wiring can happen in a self-contained future commit.
+
+Goals
+  * Play MP3 / AAC / OGG from /music/ on SD, with optional sub-
+    directories per album / playlist.
+  * Standard playlist formats: .m3u / .m3u8 (line-per-file),
+    .pls (Shoutcast format), .xspf (XML; optional later).
+  * Shuffle / repeat modes + a "resume last playlist position"
+    across reboots.
+  * Metadata: ID3v2 for MP3, ATOM boxes for AAC, Vorbis comments
+    for OGG. ESP32-audioI2S already parses these and emits
+    evt_id3data / evt_streamtitle.
+
+Module boundary: new player_sd.{h,cpp}
+  API:
+    bool        playerSdBegin();            // pull SD, scan /music/
+    int         playerSdPlaylistCount();    // number of .m3u files
+    const char *playerSdPlaylistName(int);
+    bool        playerSdLoadPlaylist(const char *path);
+    bool        playerSdPlay(int track);    // 0-based
+    bool        playerSdNext();
+    bool        playerSdPrev();
+    bool        playerSdPause();
+    void        playerSdStop();
+    int         playerSdCurrentTrack();
+    int         playerSdTrackCount();
+    const char *playerSdTrackPath(int);
+    void        playerSdSetShuffle(bool);
+    void        playerSdSetRepeat(int);     // 0=off, 1=track, 2=all
+
+Storage:
+  * Active playlist lives in RAM as a dynamic std::vector<String>
+    (paths into /music/). Bounded at kMaxTracksInPlaylist = 512
+    to keep RAM predictable.
+  * Resume state in NVS: keys "player/lastpl" (path), "player/
+    lastidx" (int), "player/shuffle" (bool), "player/repeat" (int).
+
+Playback:
+  * audio.connecttoFS(SD_MMC, path) starts a file; seek support
+    via audio.setFilePos().
+  * On evt_eof: advance index per shuffle / repeat, call
+    connecttoFS on the new path.
+  * Radio-mode vs SD-player-mode is tracked by an "audioSource" enum
+    in the audio module: AUDIO_SRC_STREAM vs AUDIO_SRC_SDFILE.
+    audioSelectStation switches to STREAM; playerSdPlay switches
+    to SDFILE.
+
+UI hooks:
+  * Web: new /files page with a directory listing of /music/, plus
+    a playlist editor (drag-reorder). POST /api/player/play
+    {path=..., track=...}.
+  * LCD: reuse the now-playing card, with display name coming from
+    playerSdCurrentTrack's ID3 tag (title + artist); the station
+    switcher row gets repurposed as a small "track X of N" +
+    prev/next if we're in SD mode.
+  * CLI: new `play <path>` / `play ls [dir]` / `play list` / `play
+    shuffle on|off` commands.
+
+Risks:
+  * SD + network + audio task can fight for SPI / PSRAM. Start
+    with mode-exclusive (only one source at a time) rather than
+    crossfade.
+  * ID3v2 tags with album art can be megabytes; parse only title +
+    artist + length fields and skip the rest.
+
+
+== Design notes: web-radio station discovery (item 7) ===========================
+
+Goals
+  * In-device discovery of internet radio stations (genre / search)
+    without leaving the radio.
+  * Add-to-favourites with one click -> goes into the overrides
+    layer that's already in stations.cpp.
+
+Back-end choice (cheap first):
+  * Radio-Browser Community API:
+      https://api.radio-browser.info/
+      https://de1.api.radio-browser.info/json/stations/search?name=...
+    Free, no auth, CORS-friendly, returns JSON with station name /
+    URL / bitrate / codec / country / tags.
+  * Fallback: Shoutcast YP API (legacy). TuneIn needs a key.
+
+Module boundary: new discover.{h,cpp}
+  API:
+    struct Hit { String name, url, codec; int bitrate; String country; };
+    int   discoverSearch(const char *query, Hit *out, int maxOut);
+    int   discoverByGenre(const char *genre, Hit *out, int maxOut);
+    bool  discoverSaveHit(int slot, const Hit &h); // -> stationsSetSlot
+    int   discoverTopTags(String *out, int maxOut); // cache of common tags
+
+Implementation sketch:
+  * Use HTTPClient to GET the API with a User-Agent of
+    "ON8CIT-WebRadio/0.3". Radio-Browser requires a UA header.
+  * Parse JSON with ArduinoJson (add to lib_deps). Typical response
+    is < 10 KB for 30 hits; stream-parse to avoid heap pressure.
+  * Cache last query + results so paging between the LCD and web
+    doesn't re-hit the API.
+
+UI hooks:
+  * Web: /discover page. Genre chips (top 12 tags), search box,
+    results list. Each hit has a "Save to slot N" dropdown that
+    POSTs to /api/station-edit (already implemented).
+  * LCD: skip an LCD UX in v1 -- the discover flow is
+    fundamentally long (typing a query, picking a hit) and the web
+    UI is a better surface.
+  * CLI: `discover search "jazz"`, `discover save 3 <hit#>` for
+    headless workflow.
+
+Privacy / rate limits:
+  * Radio-Browser asks for a UA and ~1 QPS per client. Not an
+    issue for human-driven search.
+
 
 == Changes made in this round (26-4-2026) =======================================
 
