@@ -24,8 +24,12 @@ directly below bottom edge of the now playing, small in a "standout" box the fri
 above and below the currnet selection along with an arrow - this will be used to change channel with touch later
 Bottom edge please put in the RSSI indicator along with bit-rate.
 
+6. Make notes in this file about how we might implement an MP3 Player from the SD card
+with industry standard options for playlists. 
 
-  
+7. Make notes in this file about how we might implement a web-radio station discovery function
+perhaps with web control or OLED options.
+
 
 == Changes made in this round (25-4-2026) =======================================
   
