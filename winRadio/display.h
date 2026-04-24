@@ -64,5 +64,9 @@ void displayShowBootSplash(const char *status = nullptr);
 void displayShowWifiScan(const char *footer = nullptr, int highlightIdx = -1);
 void displayShowConnecting(const char *ssid, int slot, int total,
                            const char *footer = nullptr);
+// Compact view shown after the 10 s boot splash while netConnect() is
+// still iterating saved slots: small logo, scan list, commentary row.
+void displayShowCompactConnect(const char *ssid, int slot, int total,
+                               const char *footer = nullptr);
 // Shown while the AP provisioning portal is active.
 void displayShowSetupMode(const char *apSsid, const char *apIp);

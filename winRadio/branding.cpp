@@ -78,3 +78,19 @@ const char *on8citLogoSvg() {
         "<circle cx=20 cy=20 r=3  fill='#FFD400'/>"
         "</svg>";
 }
+
+// Standalone SVG served as /favicon.svg; includes the proper <?xml?> +
+// namespace that browsers want on a top-level SVG document, and a dark
+// background so the icon is visible on light tab backgrounds. Same
+// broadcast-waves shape as on8citLogoSvg().
+const char *on8citFaviconSvg() {
+    return
+        "<?xml version='1.0' encoding='UTF-8'?>"
+        "<svg viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'>"
+        "<rect width=40 height=40 rx=8 fill='#0b0d11'/>"
+        "<circle cx=20 cy=20 r=16 fill=none stroke='#FFD40030' stroke-width=1/>"
+        "<circle cx=20 cy=20 r=11 fill=none stroke='#FFD40080' stroke-width=1/>"
+        "<circle cx=20 cy=20 r=7  fill=none stroke='#FFD400'   stroke-width=2/>"
+        "<circle cx=20 cy=20 r=3  fill='#FFD400'/>"
+        "</svg>";
+}

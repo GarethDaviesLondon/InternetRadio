@@ -44,7 +44,7 @@
 #define BAT_V_MAX     4.2f
 
 // ---- Net / discovery -------------------------------------------------------
-#define DEFAULT_HOSTNAME   "on8cit-radio"            // mDNS: on8cit-radio.local
+#define DEFAULT_HOSTNAME   "WebRadio"                 // mDNS: WebRadio.local
 #define PROVISION_AP_SSID  "ON8CIT-WinRadio-Setup"
 #define PROVISION_AP_PASS  ""                        // empty = open AP
 
