@@ -1,32 +1,70 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-Clock interface: Please revert to the large 7 segment LED format for time.
-Volume show should be smaller in height and at the bottom (just above the footer)
-There is no now-playing information scrolling at all, it may be behind the volume control.
 
-Search Page - when saving, don't navigate back to home after. Do the save but keep the
-search results in place.
+== Changes made in this round (30-4-2026) =======================================
 
-When I saved Heart 80's (new station) to slot 3 also overwrote seemed to overwrite slot 1 on the refresh
-of home, it hadn't as all OK -  there is some condition where slot 1 on the home page shows the "now playing" 
-station, rather than the contents of slot 1 in the list. It's temporary as it does reset OK.
+Clock interface
+  1. Time font reverted to LGFX font 7 (the 7-segment LED look). Drawn
+     via the sprite's drawString so there's no auto-wrap. textWidth
+     centres it; height ~48 px, fits cleanly above the date.
+  2. Volume bar shrunk + moved: was 36x12 at y=148 under the date,
+     now 30x8 at y=207 (just above the orange footer rule). The
+     "VOL" label sits immediately above, left-justified.
+  3. The song-title scroll strip (kClockSongY=168) is no longer
+     hidden behind the volume bar -- volume moved to the bottom
+     opened the whole mid-band up. Song ticker now scrolls
+     visibly in clock mode.
 
-The API information should be removed from the Home page and placed on it's own page with a navivation text
-at the bottom of the home page.
+Slot-1 preview bug
+  4. Fixed by splitting the audio display name into two functions:
+       audioStationDisplayName(idx) -- pure slot label, NVS
+         override or URL-derived. Never includes the ICY broadcast
+         name. Used by the station grid / switcher / web list.
+       audioNowPlayingName()        -- ad-hoc preview name > ICY
+         station name > current slot's display name. Used only by
+         the NP card's big green header.
+     The previous single-function path fell through to the ICY name
+     whenever idx == s_chosen, which is why saving a new candidate
+     via /api/listen temporarily made slot 0 on the home grid render
+     as the previewed station. audioPlayAdhoc now stores the name in
+     a dedicated s_adhocName slot and clears the ICY cache to stop
+     the stale flash on reconnect; audioSelectStation clears
+     s_adhocName so the NP header reverts correctly.
 
-The discover button should move to be located inside the section with the saved station slots.
+Web layout
+  5. /discover Save is now AJAX. The Save button flips to "Saving..."
+     then "Saved" inline and the page stays put -- user can keep
+     auditioning other results on the same list. The underlying
+     POST /api/station-edit still 302s to / for the home-page modal
+     form; the Discover path just uses fetch() and ignores the
+     redirect.
+  6. API card removed from the home page. New dedicated /api-docs
+     page reached via the "API" link in every page's footer.
+  7. Discover button is now ONLY the "Discover more stations"
+     gradient tile inside the Stations card. The duplicate in
+     Controls is gone.
+  8. Reboot moved to its own bottom "System" card. Still has the
+     confirm() prompt + loading modal.
 
-The reboot button should be moved to the bottom of the page.
+Feedback
+  9. Every internal <a href> (same-origin, non-anchor) now fires
+     showLoading('Loading page...') on click. The first-visit
+     /discover navigation (no browser cache, slow TLS + Radio-
+     Browser round-trip) no longer looks frozen.
 
-Still bug on empty search results. Use Sequence. Discover->Search->Select->Save->auto Home->Discover->Search
-(The search was the same on each, 80's genre from drop down list)
-Results (0)
-No hits.
+Discover HTTP -1
+ 10. HTTP-first, HTTPS-fallback. After setInsecure() helped most of
+     the time, the remaining "HTTP -1" reports were the ESP32's TLS
+     handshake timing out under the 8 s budget against rotating LE
+     certs. Switched httpGet to try plain HTTP against every mirror
+     first (WiFiClient, 8 s), then HTTPS with setInsecure as a
+     fallback (WiFiClientSecure, 15 s). HTTP sidesteps the
+     handshake entirely on hosts that accept it -- all Radio-
+     Browser mirrors do. First 200 wins. setReuse(false) stops
+     stale sockets leaking between retries.
 
-Last error: HTTP -1 from https://all.api.radio-browser.info/json/stations/search?order=votes&reverse=true&hidebroken=true&limit=40&tag=80s
 
-The first time hitting "Discover" after reboot - when the browser hasn't cached - the load-time is long page-to-page
-can we do a modal popup between pages for user feedback.
+== Changes made in this round (29-4-2026) =======================================
 
 
 
