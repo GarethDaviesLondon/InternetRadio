@@ -481,10 +481,12 @@ void displayDrawScroll() {
 
     if (s_mode == DM_BIG_CLOCK) {
         // Clock mode: full-width ticker painted directly on the panel
-        // with the matching bg colour (no sprite -- sprite2 is 202 wide).
-        // Arduino_GFX uses print() with a cursor rather than drawString.
-        // setTextSize(2) on its built-in 5x7 font gives ~12 px per char.
-        const int charW = 12;
+        // with the matching bg colour. Placed below the big clock face
+        // + date + volume bars so they don't overlap -- see the layout
+        // comment in drawBigClock().
+        constexpr int kClockSongY = 168;
+        constexpr int kClockSongH = 14;
+        const int charW = 6;               // Arduino_GFX 5x7 @ size=1
         bool songScroll = ((int)sSong.length() * charW) > 240;
         if (songScroll) {
             s_songPosition--;
@@ -495,12 +497,12 @@ void displayDrawScroll() {
             s_songPosition = x;
         }
         if (songScroll || sSong != s_lastSong || s_lastMode != s_mode) {
-            s_gfx->fillRect(0, kSongScrollY, 240, kSongScrollH, bg);
-            s_gfx->setTextColor(RGB565_YELLOW, bg);
-            s_gfx->setTextSize(2);
-            s_gfx->setCursor(s_songPosition, kSongScrollY);
-            s_gfx->print(sSong);
+            s_gfx->fillRect(0, kClockSongY, 240, kClockSongH, bg);
+            s_gfx->setTextWrap(false);         // keep it on one line
             s_gfx->setTextSize(1);
+            s_gfx->setTextColor(RGB565_YELLOW, bg);
+            s_gfx->setCursor(s_songPosition, kClockSongY + 3);
+            s_gfx->print(sSong);
             s_lastSong = sSong;
             s_lastSongPos = s_songPosition;
             s_lastMode = s_mode;
@@ -634,19 +636,19 @@ static void drawNowPlaying() {
     s_sprite.setTextColor(TFT_GREEN, bg);
     s_sprite.drawString(stName, cpX + 8, cpY + 6, 2);
 
-    // "On Air" label, centred, above the scrolling station-name strip.
-    auto centeredLabel = [&](const char *txt, int y, uint16_t c) {
-        int tw = (int)strlen(txt) * 14;
-        int lx2 = cpX + (cpW - tw) / 2;
+    // "On Air" / "Now Playing" section labels, left-aligned within the
+    // card (user preference -- centred labels looked off-balance next to
+    // the big green station name).
+    auto leftLabel = [&](const char *txt, int y, uint16_t c) {
         s_sprite.setTextColor(c, bg);
-        s_sprite.drawString(txt, lx2, y, 2);
+        s_sprite.drawString(txt, cpX + 8, y, 2);
     };
     // Strip coordinates from the top of the file:
     //   kOnAirScrollY = 112  -> label just above it
     //   kSongScrollY  = 152  -> label just above that
     // Labels at y-16 so there's room for font 2's glyph height.
-    centeredLabel("On Air",     kOnAirScrollY - 18, orange);
-    centeredLabel("Now Playing", kSongScrollY - 18, orange);
+    leftLabel("On Air",     kOnAirScrollY - 18, orange);
+    leftLabel("Now Playing", kSongScrollY - 18, orange);
 
     // NB: no borders around either scroll strip -- user spec.
 
@@ -707,7 +709,6 @@ static void drawNowPlaying() {
 static void drawBigClock() {
     const uint16_t bg = g_theme.bg;
     auto &g = g_theme.grays;
-    (void)g;
 
     // Clear the middle band (clock+NP+switcher area) without touching
     // the top banner/clock strip or the bottom footer.
@@ -720,29 +721,62 @@ static void drawBigClock() {
         s_sprite.drawString("(syncing)", 60, 110, 4);
         return;
     }
-    // Centred HH:MM:SS at the biggest built-in size. font 7 is the "7-
-    // segment" look and is the only truly huge font LGFX ships.
+    // HH:MM:SS. Font 7 is the classic 7-segment look. It's big: ~48 px
+    // per char -> the full 8-char "14:32:05" is ~384 px wide which
+    // overflows the 240 px screen. Font 4 (~14 px/char bold) gives a
+    // ~112 px total and leaves room underneath for date + volume +
+    // pause indicator.
     s_sprite.setTextColor(TFT_YELLOW, bg);
-    s_sprite.drawString(String(timeBuf),  4, 90, 7);
+    {
+        String t = timeBuf;
+        int tw = (int)t.length() * 28;   // font 4 ~28 px/char
+        int lx = (240 - tw) / 2; if (lx < 0) lx = 0;
+        s_sprite.drawString(t, lx, 62, 4);
+    }
 
     // Date in smaller bold below.
     char dateBuf[24];
     clockFormatDate(dateBuf, sizeof(dateBuf));
     s_sprite.setTextColor(TFT_CYAN, bg);
-    int tw = (int)strlen(dateBuf) * 14;
-    int lx = (240 - tw) / 2; if (lx < 0) lx = 0;
-    s_sprite.drawString(String(dateBuf), lx, 180, 2);
+    {
+        String d = dateBuf;
+        int dw = (int)d.length() * 14;
+        int lx = (240 - dw) / 2; if (lx < 0) lx = 0;
+        s_sprite.drawString(d, lx, 118, 2);
+    }
+
+    // ---- Horizontal 5-segment volume bar under the date.
+    int vol = audioVolume();
+    {
+        const int segW = 36, segH = 12, gap = 4;
+        const int total = 5 * segW + 4 * gap;
+        const int sx = (240 - total) / 2;
+        const int sy = 148;
+        for (int i = 0; i < 5; i++) {
+            uint16_t c = (i < vol) ? g_theme.volumeBar : g[11];
+            s_sprite.fillRoundRect(sx + i * (segW + gap), sy, segW, segH, 3, c);
+        }
+        // Tiny "VOL" label to the left of the bar so it's clearly a
+        // volume indicator (otherwise it reads as a generic progress
+        // bar).
+        s_sprite.setTextColor(g[4], bg);
+        s_sprite.drawString("VOL", 4, sy, 1);
+    }
+
+    // ---- Song title scroll strip is drawn by displayDrawScroll() at
+    // y = kSongScrollY (152) in clock mode. Leave the row from y=164
+    // onward free for the pause indicator.
 
     // ---- Paused indicator: small "||" + "Playback Paused" text.
     // Sits above the footer (y=217) and well clear of the big clock
-    // face. Does not overlay the clock.
+    // face + the song ticker.
     if (audioIsPaused()) {
         const char *label = "Playback Paused";
-        const int labelW  = (int)strlen(label) * 6;   // font 1 is ~6 px/char
-        const int bars    = 13;                       // 5+3+5
+        const int labelW  = (int)strlen(label) * 6;
+        const int bars    = 13;
         const int total   = bars + 4 + labelW;
         const int sx      = (240 - total) / 2;
-        const int y       = 205;
+        const int y       = 190;
         s_sprite.fillRoundRect(sx,     y, 5, 14, 1, TFT_YELLOW);
         s_sprite.fillRoundRect(sx + 8, y, 5, 14, 1, TFT_YELLOW);
         s_sprite.setTextColor(TFT_YELLOW, bg);
