@@ -1,38 +1,94 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-The now playing screen : Please align On Air and Now Playing to the left.
 
-The web discovery:
-  Put a large button on the home page - in the Stations area - to navigate to discovery
-  The refresh rate between pages is slow, so please pop a a modal "Loading..." when the navigation button
-  or some other user feedback so they know that the button press is registered. Same when reaching out to the web.
+== Changes made in this round (29-4-2026) =======================================
 
-  Geography: Please make the list alphabetical
+Display
+--------
+  1. NP labels ("On Air", "Now Playing") are now left-aligned at the
+     card's inner margin instead of centred.
 
-  When a list of stations is returned - play is good, but keep the page as is with the save button available,
-  and the user can then select other stations on the list to try. Don't navigate back to search.
+  2. Clock-mode song ticker:
+     - setTextWrap(false) on the Arduino_GFX path so long titles stay
+       on one line and scroll instead of overflowing onto the date
+       row.
+     - Font dropped from size 2 (~14 px/char) to size 1 (~6 px/char),
+       roughly 40 % smaller per user spec.
+     - New dedicated kClockSongY constant so the clock-mode strip no
+       longer shares a Y with the NP mode (avoided collision with
+       the new volume bar).
 
-  When hitting play - provide user feeback to know that the play has request has registered (grey out?) and
-  the user knows when they should be hearing something.
+  3. Clock-mode volume bars:
+     - Horizontal 5-segment bar under the date (y=148). 36x12
+       segments, 4 px gap, rounded, labelled "VOL" on the left.
+     - Same colour semantics as the NP vertical bar.
 
-  Genre - please sort alphabetically. 
-  
-  If possible put a navigation link from each station to go to their home page in a new browser tab.
+  4. Clock-mode time font:
+     - Dropped from LGFX font 7 (48 px/char -- 8 chars = 384 px
+       overflowed the 240 px screen) to font 4 (~28 px/char). Full
+       HH:MM:SS now fits with room for date + volume + pause
+       indicator underneath.
 
-  If possible display a little information about each station so we have an idea about it as well as the name
-  (location, genre?)
 
-  The source is only "Radio Browser" are there other options, if so can we add them?
+Discover
+---------
+  5. TLS fix for the "HTTP -1" regression:
+     - Discover was failing every request because arduino-esp32's
+       default HTTPClient couldn't verify Radio-Browser's Let's
+       Encrypt chain without a baked-in CA bundle. Switched to
+       WiFiClientSecure with setInsecure() + http.begin(secure,
+       url). Acceptable for a public read-only API that carries no
+       user credentials. Timeout bumped to 8 s and strict redirect
+       follow enabled.
 
-  Discovery worked for a while - but now has stopped working with this message: No hits.
+  6. Alphabetical dropdowns:
+     - Genre / tag and Country pickers now sort case-insensitively
+       by name. The underlying fetch is still weighted by station-
+       count (so the 40 most-populated tags and ~240 countries are
+       kept) but the presentation is alphabetical.
 
-Last error: HTTP -1 from https://all.api.radio-browser.info/json/stations/search?order=votes&reverse=true&hidebroken=true&limit=40&tag=music
+  7. Per-station info + homepage link:
+     - Each result row shows: name + codec + bitrate + country on
+       line 1; the first four tags + an optional "Homepage ->"
+       link (opens in a new tab, rel=noopener) on line 2; raw
+       stream URL on line 3; Listen + Save on line 4.
 
-On clock interface if the text is too long it wraps vertically before scrolling and over types the date. Keep the characters
-on one line, and reduce the now playing font size by around 40%
+  8. Listen stays on the results page:
+     - Listen now does a fetch('/api/listen') instead of a form
+       POST that 302-redirects back. The page stays as-is, letting
+       the user try other stations on the list without losing the
+       search state.
+     - /api/listen now returns 200 on success / 502 on playback
+       failure; no redirect.
 
-When on the clock screen we need to display the volume setting, please put the 5 bars on that screen too (might be 
-horizontal as the clock is wide and I like that font size)
+  9. In-flight feedback on Listen:
+     - The clicked button goes disabled + "Connecting...", then
+       "Playing" for 1.5 s, then restores. Other Listen buttons on
+       the page are disabled for the same window so the user can't
+       spam-click.
+
+ 10. Loading modal:
+     - Shared inline #loading overlay with a dark card. Shows on:
+         - every form submit (Searching / Saving / Working...)
+         - Listen fetch  (Asking radio to play...)
+         - the Home-page Discover CTA  (Opening Discover...)
+     - Clears on pageshow so navigating back with the browser's
+       history doesn't leave it stuck.
+
+ 11. Large Discover CTA in the Stations card:
+     - Cyan-on-dark gradient button above the station grid labelled
+       "Discover more stations", linked to /discover. Triggers the
+       loading modal on click. CSS lives in branding.cpp so both
+       pages share the style.
+
+ 12. Source dropdown forward-looking:
+     - Radio-Browser stays the only real source.
+     - SHOUTcast YP and TuneIn OPML appear as disabled placeholder
+       options so the roadmap is visible in the UI itself. They
+       light up when their respective clients land.
+
+
+== Changes made in this round (28-4-2026) =======================================
 
 
 
