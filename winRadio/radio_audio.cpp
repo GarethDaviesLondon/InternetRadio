@@ -31,6 +31,8 @@ static long     s_bitrate = 0;
 static unsigned s_infoCount = 0;
 static bool     s_log = false;
 static String   s_displayName;        // scratch for audioStationDisplayName
+static String   s_nowPlayingName;     // scratch for audioNowPlayingName
+static String   s_adhocName;          // name set by the last audioPlayAdhoc
 static bool     s_paused = false;
 
 // Session persistence (NVS namespace "radio"). Keys:
@@ -299,8 +301,9 @@ bool audioSelectStation(int idx) {
     if (n <= 0) return false;
     if (idx < 0)  idx = 0;
     if (idx >= n) idx = n - 1;
-    s_chosen = idx;
-    s_paused = false;
+    s_chosen    = idx;
+    s_paused    = false;
+    s_adhocName = "";
     bool ok = s_audio.connecttohost(stationsUrl(s_chosen));
     Serial.printf("connecttohost('%s') -> %s\r\n", stationsUrl(s_chosen), ok ? "ok" : "FAIL");
     persistSession();
@@ -313,12 +316,15 @@ void audioPrevStation() { audioSelectStation((s_chosen - 1 + stationsCount()) % 
 bool audioPlayAdhoc(const char *url, const char *name) {
     if (!url || !*url) return false;
     s_paused = false;
+    s_adhocName = name ? name : "";
+    // Clear the ICY cache so the now-playing row doesn't flash the
+    // previous slot's broadcast name during reconnect. s_curStation
+    // will be re-populated by the evt_name callback for the new
+    // stream (if it sends one).
+    s_curStation = "";
+    s_song       = "";
+    s_bitrate    = 0;
     bool ok = s_audio.connecttohost(url);
-    if (ok) {
-        s_curStation = name ? name : "";
-        s_song       = "";
-        s_bitrate    = 0;
-    }
     Serial.printf("audio: adhoc '%s' -> %s\r\n", url, ok ? "ok" : "FAIL");
     return ok;
 }
@@ -375,32 +381,47 @@ int8_t audioEqTreble() { return s_treble; }
 // Observed state.
 // --------------------------------------------------------------------------
 
+const char *audioNowPlayingName() {
+    // Priority 1: the user is previewing a candidate via audioPlayAdhoc.
+    if (s_adhocName.length()) {
+        s_nowPlayingName = s_adhocName;
+        if (s_nowPlayingName.length() > 20) s_nowPlayingName = s_nowPlayingName.substring(0, 20);
+        return s_nowPlayingName.c_str();
+    }
+    // Priority 2: the current slot's stream emitted an ICY station name.
+    if (s_curStation.length()) {
+        s_nowPlayingName = s_curStation;
+        if (s_nowPlayingName.length() > 20) s_nowPlayingName = s_nowPlayingName.substring(0, 20);
+        return s_nowPlayingName.c_str();
+    }
+    // Priority 3: fall back to the saved-slot display name (override or
+    // URL-derived).
+    return audioStationDisplayName(s_chosen);
+}
+
 const char *audioCurStation()    { return s_curStation.c_str(); }
 const char *audioSongPlaying()   { return s_song.c_str(); }
 long        audioBitrate()       { return s_bitrate; }
 bool        audioIsRunning()     { return s_audio.isRunning(); }
 unsigned    audioInfoEventCount(){ return s_infoCount; }
 
-// Derive a tidy display name, with three-layer precedence:
-//   1. NVS override (stations.cpp, set via the /api/station-edit web
-//      modal or the CLI `station edit` command).
-//   2. If this is the currently-playing slot and the stream has sent an
-//      ICY "station name", use that (the station identifier off the air).
-//   3. URL-derived short name:
-//        http://ice1.somafm.com/groovesalad-128-mp3 -> "groovesalad"
-//        http://stream.radioparadise.com/mp3-128    -> "radioparadise"
-//        http://sc6.radiocaroline.net:8040/stream   -> "stream"
-//      If the tail is useless ("stream", ";", "") the host is used.
+// Pure slot label: NVS override > URL-derived short name. Does NOT
+// fall through to the ICY broadcast name -- that branch used to make
+// the saved-list UI render slot N as "whatever is currently playing",
+// which broke the home-page station grid whenever /api/listen had
+// previewed a new station. Callers who want "what's playing right
+// now" should use audioNowPlayingName() instead.
+//
+// URL-derived rules:
+//   http://ice1.somafm.com/groovesalad-128-mp3 -> "groovesalad"
+//   http://stream.radioparadise.com/mp3-128    -> "radioparadise"
+//   http://sc6.radiocaroline.net:8040/stream   -> "stream"
+// If the tail is useless ("stream", ";", "") the host is used.
 // Result is truncated to 20 chars to fit the LCD.
 const char *audioStationDisplayName(int idx) {
     const char *ov = stationsOverrideName(idx);
     if (ov && *ov) {
         s_displayName = ov;
-        if (s_displayName.length() > 20) s_displayName = s_displayName.substring(0, 20);
-        return s_displayName.c_str();
-    }
-    if (idx == s_chosen && s_curStation.length() > 0) {
-        s_displayName = s_curStation;
         if (s_displayName.length() > 20) s_displayName = s_displayName.substring(0, 20);
         return s_displayName.c_str();
     }

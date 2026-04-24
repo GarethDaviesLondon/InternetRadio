@@ -21,8 +21,20 @@ bool audioStartLast();            // connect to the remembered station
 void audioLoop();                 // call every loop() iteration
 
 // Friendly display name for a station slot: last URL path segment, with
-// common audio suffixes / bit-rates stripped. Safe for LCD and web use.
+// common audio suffixes / bit-rates stripped, or the per-slot NVS
+// override name if one is set. Never falls through to the ICY
+// broadcast name -- that would make the saved-list UI show the
+// currently-playing stream's name in slot 0, which is wrong.
 const char *audioStationDisplayName(int idx);
+
+// What's actually playing right now (for the "now playing" card on the
+// LCD and web UI). Precedence:
+//   1. If audioPlayAdhoc set a name -> that name.
+//   2. If the current slot's stream emitted an ICY station name -> that.
+//   3. Fall back to audioStationDisplayName(current slot).
+// This is the function that used to overload audioStationDisplayName,
+// causing slot N to appear as the preview name after /api/listen.
+const char *audioNowPlayingName();
 
 // ---- Playback control ----------------------------------------------------
 int  audioCurrentStation();       // 0-based index into stations module

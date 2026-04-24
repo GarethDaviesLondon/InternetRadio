@@ -630,8 +630,11 @@ static void drawNowPlaying() {
 
     int chosen = audioCurrentStation();
 
-    // Big station display name (override > ICY > URL-derived).
-    String stName = audioStationDisplayName(chosen);
+    // Big "now playing" name -- ad-hoc preview > ICY broadcast name >
+    // current saved slot's display name. Using audioNowPlayingName
+    // (not audioStationDisplayName) is what stops the home-page's
+    // station grid leaking preview names into slot 0.
+    String stName = audioNowPlayingName();
     if (stName.length() > 16) stName = stName.substring(0, 16);
     s_sprite.setTextColor(TFT_GREEN, bg);
     s_sprite.drawString(stName, cpX + 8, cpY + 6, 2);
@@ -721,17 +724,15 @@ static void drawBigClock() {
         s_sprite.drawString("(syncing)", 60, 110, 4);
         return;
     }
-    // HH:MM:SS. Font 7 is the classic 7-segment look. It's big: ~48 px
-    // per char -> the full 8-char "14:32:05" is ~384 px wide which
-    // overflows the 240 px screen. Font 4 (~14 px/char bold) gives a
-    // ~112 px total and leaves room underneath for date + volume +
-    // pause indicator.
+    // HH:MM:SS in the big LGFX font 7 (7-segment LCD look). LGFX
+    // drawString doesn't auto-wrap the sprite, so overflow isn't a
+    // problem; we just centre it horizontally.
     s_sprite.setTextColor(TFT_YELLOW, bg);
     {
         String t = timeBuf;
-        int tw = (int)t.length() * 28;   // font 4 ~28 px/char
+        int tw = s_sprite.textWidth(t.c_str(), 7);
         int lx = (240 - tw) / 2; if (lx < 0) lx = 0;
-        s_sprite.drawString(t, lx, 62, 4);
+        s_sprite.drawString(t, lx, 58, 7);
     }
 
     // Date in smaller bold below.
@@ -740,47 +741,50 @@ static void drawBigClock() {
     s_sprite.setTextColor(TFT_CYAN, bg);
     {
         String d = dateBuf;
-        int dw = (int)d.length() * 14;
+        int dw = s_sprite.textWidth(d.c_str(), 2);
         int lx = (240 - dw) / 2; if (lx < 0) lx = 0;
-        s_sprite.drawString(d, lx, 118, 2);
+        s_sprite.drawString(d, lx, 128, 2);
     }
 
-    // ---- Horizontal 5-segment volume bar under the date.
-    int vol = audioVolume();
-    {
-        const int segW = 36, segH = 12, gap = 4;
-        const int total = 5 * segW + 4 * gap;
-        const int sx = (240 - total) / 2;
-        const int sy = 148;
-        for (int i = 0; i < 5; i++) {
-            uint16_t c = (i < vol) ? g_theme.volumeBar : g[11];
-            s_sprite.fillRoundRect(sx + i * (segW + gap), sy, segW, segH, 3, c);
-        }
-        // Tiny "VOL" label to the left of the bar so it's clearly a
-        // volume indicator (otherwise it reads as a generic progress
-        // bar).
-        s_sprite.setTextColor(g[4], bg);
-        s_sprite.drawString("VOL", 4, sy, 1);
-    }
-
-    // ---- Song title scroll strip is drawn by displayDrawScroll() at
-    // y = kSongScrollY (152) in clock mode. Leave the row from y=164
-    // onward free for the pause indicator.
+    // ---- Song title scroll strip (user: "There is no now-playing
+    // information scrolling at all"). displayDrawScroll() renders it
+    // at kClockSongY (see displayDrawScroll). Needs to be BELOW the
+    // date and ABOVE the volume bar -- the old layout had the strip
+    // behind the volume control.
+    // kClockSongY is now 168 (see top of file); stays visible.
 
     // ---- Paused indicator: small "||" + "Playback Paused" text.
-    // Sits above the footer (y=217) and well clear of the big clock
-    // face + the song ticker.
+    // Just below the song ticker and above the new small volume bar.
     if (audioIsPaused()) {
         const char *label = "Playback Paused";
         const int labelW  = (int)strlen(label) * 6;
         const int bars    = 13;
         const int total   = bars + 4 + labelW;
         const int sx      = (240 - total) / 2;
-        const int y       = 190;
+        const int y       = 186;
         s_sprite.fillRoundRect(sx,     y, 5, 14, 1, TFT_YELLOW);
         s_sprite.fillRoundRect(sx + 8, y, 5, 14, 1, TFT_YELLOW);
         s_sprite.setTextColor(TFT_YELLOW, bg);
         s_sprite.drawString(label, sx + bars + 4, y + 3, 1);
+    }
+
+    // ---- Small horizontal volume bar at the very bottom (just above
+    // the orange-rule footer at y=217). Smaller height (8 px) and
+    // narrower segments so it doesn't dominate the clock face.
+    int vol = audioVolume();
+    {
+        const int segW = 30, segH = 8, gap = 3;
+        const int total = 5 * segW + 4 * gap;
+        const int sx = (240 - total) / 2;
+        const int sy = 207;
+        for (int i = 0; i < 5; i++) {
+            uint16_t c = (i < vol) ? g_theme.volumeBar : g[11];
+            s_sprite.fillRoundRect(sx + i * (segW + gap), sy, segW, segH, 2, c);
+        }
+        // "VOL" label left-justified, above the bar so it doesn't
+        // steal the bar's width.
+        s_sprite.setTextColor(g[6], bg);
+        s_sprite.drawString("VOL", sx, sy - 10, 1);
     }
 }
 
