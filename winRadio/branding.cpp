@@ -66,7 +66,12 @@ const char *on8citPageCss() {
         ".net:hover{background:#20242f;border-color:#5ae3ff}"
         ".net .rssi{color:#8aa;font-size:.85em;float:right;margin-left:.5em}"
         "a{color:#5ae3ff}"
-        "footer{color:#556;text-align:center;margin:1em 0;font-size:.8em}";
+        "footer{color:#556;text-align:center;margin:1em 0;font-size:.8em}"
+        ".bigDiscover{display:block;background:linear-gradient(135deg,#1a2a44,#223b60);"
+        "color:#5ae3ff;text-align:center;padding:1em;margin-bottom:.6em;border-radius:8px;"
+        "border:1px solid #5ae3ff55;text-decoration:none;font-weight:600;font-size:1.05em}"
+        ".bigDiscover:hover{background:linear-gradient(135deg,#223b60,#2e4f7d);"
+        "border-color:#5ae3ff}";
 }
 
 const char *on8citLogoSvg() {

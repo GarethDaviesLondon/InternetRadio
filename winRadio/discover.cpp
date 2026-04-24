@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <algorithm>
 
 // A few Radio-Browser server nodes we can round-robin over. The API DNS
 // hostname (all.api.radio-browser.info) is load-balanced, but individual
@@ -47,14 +49,24 @@ static String urlEncode(const String &s) {
 
 // Perform a GET and stuff the body into `body`. Returns HTTP status code
 // or a negative HTTPClient error. Tries each API host in turn.
+//
+// Radio-Browser is HTTPS-only and its Let's Encrypt certificate rotates.
+// We don't bake in a CA cert bundle here; instead we use setInsecure()
+// on the TLS client so the chain isn't validated. Acceptable for a
+// public community read-only API that carries no user credentials; the
+// old path was hitting "HTTP -1" because the default HTTPS client
+// couldn't verify the chain without a cert bundle.
 static int httpGet(const String &path, String &body) {
     if (WiFi.status() != WL_CONNECTED) { s_lastError = "WiFi disconnected"; return -1; }
     for (int i = 0; i < kApiHostCount; i++) {
+        String url = String(kApiHosts[i]) + path;
+        WiFiClientSecure secure;
+        secure.setInsecure();
         HTTPClient http;
         http.setUserAgent("ON8CIT-WebRadio/0.3");
-        http.setTimeout(6000);
-        String url = String(kApiHosts[i]) + path;
-        if (!http.begin(url)) { s_lastError = "begin failed: " + url; continue; }
+        http.setTimeout(8000);
+        http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+        if (!http.begin(secure, url)) { s_lastError = "begin failed: " + url; continue; }
         int code = http.GET();
         if (code == 200) {
             body = http.getString();
@@ -308,15 +320,30 @@ static int fillNamesCache(const String &path,
     return (int)cache.size();
 }
 
+// Take the top-N-by-stationcount list and re-sort it alphabetically,
+// case-insensitively. The fetch is still weighted by popularity so we
+// don't end up with "a-nostalgie-test" at the top of the dropdown; we
+// just present the popular set in a name-sortable order.
+static std::vector<String> sortAlpha(const std::vector<String> &in, int max) {
+    std::vector<String> out;
+    int n = (int)in.size(); if (n > max) n = max;
+    out.reserve(n);
+    for (int i = 0; i < n; i++) out.push_back(in[i]);
+    std::sort(out.begin(), out.end(), [](const String &a, const String &b) {
+        String la = a, lb = b;
+        la.toLowerCase(); lb.toLowerCase();
+        return la < lb;
+    });
+    return out;
+}
+
 int discoverTopTags(std::vector<String> &out, int max) {
     if (s_tagsCache.empty()) {
         fillNamesCache("/json/tags?order=stationcount&reverse=true&hidebroken=true&limit=60",
                        s_tagsCache, 60);
     }
-    out.clear();
-    int n = (int)s_tagsCache.size(); if (n > max) n = max;
-    for (int i = 0; i < n; i++) out.push_back(s_tagsCache[i]);
-    return n;
+    out = sortAlpha(s_tagsCache, max);
+    return (int)out.size();
 }
 
 int discoverTopCountries(std::vector<String> &out, int max) {
@@ -324,8 +351,6 @@ int discoverTopCountries(std::vector<String> &out, int max) {
         fillNamesCache("/json/countries?order=stationcount&reverse=true&hidebroken=true",
                        s_countriesCache, 200);
     }
-    out.clear();
-    int n = (int)s_countriesCache.size(); if (n > max) n = max;
-    for (int i = 0; i < n; i++) out.push_back(s_countriesCache[i]);
-    return n;
+    out = sortAlpha(s_countriesCache, max);
+    return (int)out.size();
 }

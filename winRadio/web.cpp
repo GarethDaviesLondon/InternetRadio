@@ -229,7 +229,10 @@ void handleIndex() {
     p += F("<button type=submit>Apply EQ</button></form>");
     p += F("</div>");
 
-    p += F("<div class=card><h2>Stations</h2><div class=grid>");
+    p += F("<div class=card><h2>Stations</h2>");
+    p += F("<a href=/discover class=bigDiscover onclick=\"showLoading('Opening Discover...')\">"
+           "&#128269; Discover more stations</a>");
+    p += F("<div class=grid>");
     for (int i = 0; i < n; i++) {
         p += F("<div class=stationRow>");
         p += F("<form method=POST action=/api/station class=stationPick>");
@@ -298,6 +301,24 @@ void handleIndex() {
            "<div>POST /api/eq</div><div>Body: b=&lt;-40..6&gt; m=&lt;-40..6&gt; t=&lt;-40..6&gt;</div>"
            "<div>POST /api/reboot</div><div></div>"
            "</div></div>");
+
+    // Loading modal + nav-click helper (shared with /discover).
+    p += F(
+      "<div id=loading style='display:none;position:fixed;inset:0;"
+      "background:rgba(0,0,0,.65);align-items:center;justify-content:center;"
+      "z-index:50'>"
+      "<div style='background:#141720;border:1px solid #2a2f3c;border-radius:8px;"
+      "padding:1.2em 1.6em;color:#e6e7ea;box-shadow:0 8px 32px rgba(0,0,0,.6)'>"
+      "<span id=loadingText>Loading...</span></div></div>"
+      "<script>"
+      "const LM=document.getElementById('loading');"
+      "const LT=document.getElementById('loadingText');"
+      "function showLoading(t){LT.textContent=t||'Loading...';LM.style.display='flex'}"
+      "window.addEventListener('pageshow',()=>LM.style.display='none');"
+      "document.querySelectorAll('form').forEach(f=>{"
+      " f.addEventListener('submit',()=>showLoading('Working...'));"
+      "});"
+      "</script>");
 
     p += pageFoot();
     s_http.send(200, "text/html", p);
@@ -400,6 +421,26 @@ static const char *sourceName(int s) {
     }
 }
 
+// Trim "tags" to the first N entries so the UI doesn't end up rendering
+// a comma-separated wall of 30 tags per station.
+static String truncTags(const String &tags, int maxTags) {
+    String out;
+    int count = 0, start = 0;
+    while (count < maxTags && start < (int)tags.length()) {
+        int comma = tags.indexOf(',', start);
+        String tok = (comma < 0) ? tags.substring(start) : tags.substring(start, comma);
+        tok.trim();
+        if (tok.length()) {
+            if (out.length()) out += ", ";
+            out += tok;
+            count++;
+        }
+        if (comma < 0) break;
+        start = comma + 1;
+    }
+    return out;
+}
+
 void handleDiscover() {
     String q       = s_http.arg("q");
     String tag     = s_http.arg("tag");
@@ -413,14 +454,15 @@ void handleDiscover() {
     if (didSearch && src == SRC_RADIOBROWSER) {
         found = discoverSearch(q, tag, country, 40, hits);
     }
-    discoverTopTags(tags, 24);
-    discoverTopCountries(countries, 200);
+    discoverTopTags(tags, 40);           // alphabetical
+    discoverTopCountries(countries, 240); // alphabetical
 
     String p = pageHead("ON8CIT WebRadio -- Discover");
 
-    // Source picker + search form.
+    // Search form.
     p += F("<div class=card><h2>Discover</h2>"
-           "<form method=GET action=/discover style='display:flex;flex-direction:column;gap:.25em'>"
+           "<form id=searchForm method=GET action=/discover "
+           "style='display:flex;flex-direction:column;gap:.25em'>"
            "<label>Source <select name=src>");
     for (int s = 0; s <= SRC_RADIOBROWSER; s++) {
         p += F("<option value=");
@@ -430,6 +472,10 @@ void handleDiscover() {
         p += sourceName(s);
         p += F("</option>");
     }
+    // Stub entries for the planned additional sources so the user can
+    // see the roadmap. Disabled until their respective client lands.
+    p += F("<option disabled>SHOUTcast YP (coming soon)</option>");
+    p += F("<option disabled>TuneIn OPML (coming soon)</option>");
     p += F("</select></label>");
 
     p += F("<label>Search (name contains) "
@@ -465,34 +511,56 @@ void handleDiscover() {
             p += htmlEscape(discoverLastError());
             p += F("</p>");
         } else {
+            p += F("<ul style='list-style:none;padding:0;margin:0'>");
+            int nst = stationsCount();
+            int rowIdx = 0;
             for (auto &h : hits) {
-                p += F("<div class=stationRow style='flex-direction:column;align-items:stretch;gap:.25em;margin:.25em 0'>");
+                p += F("<li class=stationRow style='flex-direction:column;align-items:stretch;"
+                       "gap:.3em;margin:.35em 0;padding:.5em;border:1px solid #242832;"
+                       "border-radius:6px;background:#181b24'>");
+                // Row 1: name + codec / bitrate / country
                 p += F("<div style='display:flex;justify-content:space-between;gap:.5em'>");
                 p += F("<strong>"); p += htmlEscape(h.name); p += F("</strong>");
-                p += F("<span style='color:#8aa'>");
+                p += F("<span style='color:#8aa;font-size:.85em'>");
                 if (h.bitrate > 0) { p += h.bitrate; p += F(" kbps "); }
                 p += htmlEscape(h.codec);
                 if (h.country.length()) { p += F(" &middot; "); p += htmlEscape(h.country); }
                 p += F("</span></div>");
-                p += F("<small style='color:#8aa;word-break:break-all'>");
+
+                // Row 2: tags (first 4), homepage link if any.
+                p += F("<div style='color:#8aa;font-size:.85em;display:flex;"
+                       "justify-content:space-between;gap:.5em'>");
+                p += F("<span>");
+                String t4 = truncTags(h.tags, 4);
+                p += (t4.length() ? htmlEscape(t4) : String("&mdash;"));
+                p += F("</span>");
+                if (h.homepage.length()) {
+                    p += F("<a href='"); p += htmlEscape(h.homepage);
+                    p += F("' target=_blank rel=noopener>Homepage &rarr;</a>");
+                }
+                p += F("</div>");
+
+                // Row 3: stream URL
+                p += F("<small style='color:#556;word-break:break-all;font-size:.8em'>");
                 p += htmlEscape(h.url);
                 p += F("</small>");
+
+                // Row 4: Listen (AJAX) + Save to slot.
                 p += F("<div class=row>");
-                // Listen-live: ad-hoc play without saving.
-                p += F("<form method=POST action=/api/listen>"
-                       "<input type=hidden name=url value='");
+                p += F("<button class=listenBtn data-url='");
                 p += htmlEscape(h.url);
-                p += F("'><input type=hidden name=name value='");
+                p += F("' data-name='");
                 p += htmlEscape(h.name);
-                p += F("'><button>&#9654; Listen</button></form>");
-                // Save-to-slot: dropdown + submit.
-                p += F("<form method=POST action=/api/station-edit>");
+                p += F("'>&#9654; Listen</button>");
+
+                p += F("<form method=POST action=/api/station-edit "
+                       "onsubmit='showLoading(\"Saving...\")' "
+                       "style='display:flex;gap:.3em;flex:1'>");
                 p += F("<input type=hidden name=name value='");
                 p += htmlEscape(h.name); p += F("'>");
                 p += F("<input type=hidden name=url value='");
                 p += htmlEscape(h.url);  p += F("'>");
-                p += F("<select name=n>");
-                int nst = stationsCount();
+                p += F("<select name=n style='flex:1'>");
                 for (int s = 0; s < nst; s++) {
                     p += F("<option value="); p += s; p += F(">Slot ");
                     p += (s + 1); p += F(": ");
@@ -501,13 +569,63 @@ void handleDiscover() {
                 }
                 p += F("</select>");
                 p += F("<button>Save</button></form>");
-                p += F("</div></div>");
+                p += F("</div></li>");
+                rowIdx++;
             }
+            p += F("</ul>");
         }
         p += F("</div>");
     }
 
-    p += F("<p><a href=/>&laquo; Home</a></p>");
+    // Loading modal + AJAX Listen. Kept inline so there's no extra HTTP
+    // round-trip for a static asset. <dialog> would be cleaner but
+    // isn't supported by every phone browser yet, so we roll our own.
+    p += F(
+      "<div id=loading style='display:none;position:fixed;inset:0;"
+      "background:rgba(0,0,0,.65);align-items:center;justify-content:center;"
+      "z-index:50'>"
+      "<div style='background:#141720;border:1px solid #2a2f3c;border-radius:8px;"
+      "padding:1.2em 1.6em;color:#e6e7ea;font-size:1em;box-shadow:0 8px 32px rgba(0,0,0,.6)'>"
+      "<span id=loadingText>Loading...</span></div></div>");
+
+    p += F("<p style='margin-top:1em'><a href=/>&laquo; Home</a></p>");
+
+    // Scripts: loading-modal helper + Listen AJAX + form-submit hook.
+    p += F(
+      "<script>"
+      "const LM=document.getElementById('loading');"
+      "const LT=document.getElementById('loadingText');"
+      "function showLoading(t){LT.textContent=t||'Loading...';LM.style.display='flex'}"
+      "function hideLoading(){LM.style.display='none'}"
+      // Search form triggers a loading overlay on submit.
+      "const sf=document.getElementById('searchForm');"
+      "if(sf)sf.addEventListener('submit',()=>showLoading('Searching stations...'));"
+      // Listen buttons: AJAX so we stay on the results page.
+      "document.querySelectorAll('.listenBtn').forEach(btn=>{"
+      " btn.addEventListener('click',async ()=>{"
+      "  const url=btn.dataset.url, name=btn.dataset.name;"
+      "  const oldLabel=btn.textContent, allBtns=document.querySelectorAll('.listenBtn');"
+      "  allBtns.forEach(b=>b.disabled=true);"
+      "  btn.textContent='\\u231B Connecting...';"
+      "  showLoading('Asking radio to play...');"
+      "  try{"
+      "   const fd=new FormData();fd.append('url',url);fd.append('name',name);"
+      "   const r=await fetch('/api/listen',{method:'POST',body:fd});"
+      "   if(!r.ok)throw new Error('HTTP '+r.status);"
+      "   btn.textContent='\\u266A Playing';"
+      "   setTimeout(()=>{btn.textContent='\\u25B6 Listen';allBtns.forEach(b=>b.disabled=false);hideLoading();},1500);"
+      "  }catch(e){"
+      "   btn.textContent='Error';"
+      "   setTimeout(()=>{btn.textContent=oldLabel;allBtns.forEach(b=>b.disabled=false);hideLoading();},1500);"
+      "  }"
+      " });"
+      "});"
+      // Links into this page from other pages: wake the loading modal
+      // so the user sees feedback even if the new page takes a moment
+      // to hit the server. Hooked up on DOMContentLoaded of those pages
+      // (see the home-page script).
+      "window.addEventListener('pageshow',()=>hideLoading());"
+      "</script>");
     p += pageFoot();
     s_http.send(200, "text/html", p);
 }
@@ -516,9 +634,8 @@ void handleListen() {
     if (!s_http.hasArg("url")) { s_http.send(400, "text/plain", "missing url"); return; }
     String url  = s_http.arg("url");
     String name = s_http.arg("name");
-    audioPlayAdhoc(url.c_str(), name.c_str());
-    s_http.sendHeader("Location", "/discover");
-    s_http.send(302);
+    bool ok = audioPlayAdhoc(url.c_str(), name.c_str());
+    s_http.send(ok ? 200 : 502, "text/plain", ok ? "ok" : "playback failed");
 }
 
 void handleNotFound() { s_http.send(404, "text/plain", "not found"); }
