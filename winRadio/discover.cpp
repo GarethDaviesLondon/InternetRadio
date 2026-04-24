@@ -6,16 +6,25 @@
 #include <WiFiClientSecure.h>
 #include <algorithm>
 
-// A few Radio-Browser server nodes we can round-robin over. The API DNS
-// hostname (all.api.radio-browser.info) is load-balanced, but individual
-// regional mirrors are a useful fallback if DNS is flaky.
-static const char *kApiHosts[] = {
+// A few Radio-Browser server nodes we can round-robin over. Most of
+// these mirrors accept both HTTP and HTTPS on the same host name; we
+// try plain HTTP first because it sidesteps the TLS handshake entirely
+// -- the reported "HTTP -1" failures were almost always a TLS timeout
+// or a transient certificate verification error. If every HTTP attempt
+// fails we fall back to HTTPS.
+static const char *kHttpHosts[] = {
+    "http://de2.api.radio-browser.info",
+    "http://de1.api.radio-browser.info",
+    "http://at1.api.radio-browser.info",
+    "http://all.api.radio-browser.info",
+};
+static const char *kHttpsHosts[] = {
     "https://de2.api.radio-browser.info",
     "https://de1.api.radio-browser.info",
     "https://at1.api.radio-browser.info",
     "https://all.api.radio-browser.info",
 };
-constexpr int kApiHostCount = sizeof(kApiHosts) / sizeof(kApiHosts[0]);
+constexpr int kHostCount = sizeof(kHttpHosts) / sizeof(kHttpHosts[0]);
 
 static String s_lastError = "";
 
@@ -56,26 +65,54 @@ static String urlEncode(const String &s) {
 // public community read-only API that carries no user credentials; the
 // old path was hitting "HTTP -1" because the default HTTPS client
 // couldn't verify the chain without a cert bundle.
-static int httpGet(const String &path, String &body) {
-    if (WiFi.status() != WL_CONNECTED) { s_lastError = "WiFi disconnected"; return -1; }
-    for (int i = 0; i < kApiHostCount; i++) {
-        String url = String(kApiHosts[i]) + path;
+// Do one HTTP(S) attempt. `https` toggles between WiFiClient and
+// WiFiClientSecure(setInsecure). Returns status code or negative on
+// transport failure.
+static int httpGetOnce(const String &url, bool https, String &body) {
+    HTTPClient http;
+    http.setUserAgent("ON8CIT-WebRadio/0.3");
+    http.setTimeout(https ? 15000 : 8000);    // TLS handshake can be slow
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http.setReuse(false);
+    bool began = false;
+    if (https) {
         WiFiClientSecure secure;
         secure.setInsecure();
-        HTTPClient http;
-        http.setUserAgent("ON8CIT-WebRadio/0.3");
-        http.setTimeout(8000);
-        http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-        if (!http.begin(secure, url)) { s_lastError = "begin failed: " + url; continue; }
+        began = http.begin(secure, url);
+        if (!began) { s_lastError = "begin failed: " + url; return -1; }
         int code = http.GET();
-        if (code == 200) {
-            body = http.getString();
-            http.end();
-            return 200;
-        }
+        if (code == 200) { body = http.getString(); http.end(); return 200; }
         s_lastError = "HTTP " + String(code) + " from " + url;
         http.end();
-        // Any hard failure -> try next host.
+        return code;
+    } else {
+        WiFiClient plain;
+        began = http.begin(plain, url);
+        if (!began) { s_lastError = "begin failed: " + url; return -1; }
+        int code = http.GET();
+        if (code == 200) { body = http.getString(); http.end(); return 200; }
+        s_lastError = "HTTP " + String(code) + " from " + url;
+        http.end();
+        return code;
+    }
+}
+
+// Walk every mirror via HTTP first, then every mirror via HTTPS. First
+// 200 wins. We try HTTP first because plain TCP + HTTP is dramatically
+// cheaper on ESP32 than a TLS handshake; the HTTP -1 failures reported
+// were almost always the TLS negotiation either timing out or hitting
+// a rotating LE chain that bypasses verification.
+static int httpGet(const String &path, String &body) {
+    if (WiFi.status() != WL_CONNECTED) { s_lastError = "WiFi disconnected"; return -1; }
+    for (int i = 0; i < kHostCount; i++) {
+        String url = String(kHttpHosts[i]) + path;
+        int code = httpGetOnce(url, /*https=*/false, body);
+        if (code == 200) return 200;
+    }
+    for (int i = 0; i < kHostCount; i++) {
+        String url = String(kHttpsHosts[i]) + path;
+        int code = httpGetOnce(url, /*https=*/true, body);
+        if (code == 200) return 200;
     }
     return -1;
 }
