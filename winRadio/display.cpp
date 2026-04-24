@@ -730,9 +730,10 @@ static void drawBigClock() {
     s_sprite.setTextColor(TFT_YELLOW, bg);
     {
         String t = timeBuf;
-        int tw = s_sprite.textWidth(t.c_str(), 7);
+        s_sprite.setTextFont(7);
+        int tw = s_sprite.textWidth(t);
         int lx = (240 - tw) / 2; if (lx < 0) lx = 0;
-        s_sprite.drawString(t, lx, 58, 7);
+        s_sprite.drawString(t, lx, 58);
     }
 
     // Date in smaller bold below.
@@ -741,9 +742,10 @@ static void drawBigClock() {
     s_sprite.setTextColor(TFT_CYAN, bg);
     {
         String d = dateBuf;
-        int dw = s_sprite.textWidth(d.c_str(), 2);
+        s_sprite.setTextFont(2);
+        int dw = s_sprite.textWidth(d);
         int lx = (240 - dw) / 2; if (lx < 0) lx = 0;
-        s_sprite.drawString(d, lx, 128, 2);
+        s_sprite.drawString(d, lx, 128);
     }
 
     // ---- Song title scroll strip (user: "There is no now-playing
