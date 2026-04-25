@@ -1,7 +1,7 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
 The IMU laying down is a bit sensitive and it works backwards: Laying face up should not stop it (it does) 
-and face down should (it doesnt).
+and face down should (it doesnt). Picking it back up should restart, it doesnt.
 
 When I mistype on the CLI and use the delete key to correct what I see, what is sent to CLI processing
 must contain the edit commands as it doesn't response the same as when I type cleanly. Can we fix this?
