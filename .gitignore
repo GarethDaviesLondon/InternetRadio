@@ -2,6 +2,7 @@
 .pio/
 .pioenvs/
 .piolibdeps/
+.pio_cache/
 
 # VS Code / PlatformIO IDE auto-generated files
 .vscode/
