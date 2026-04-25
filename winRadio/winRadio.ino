@@ -229,6 +229,13 @@ void loop() {
     // Long-presses (sleep, picker-open) still pass through.
     if (displayActiveMode() == DM_SYS_INFO) {
         switch (ev) {
+            case INPUT_SYS_INFO:
+                // Long-press Right while in sysinfo -> open the on-device
+                // WiFi picker. The picker triggers a fresh scan.
+                displayWifiPickerOpen();
+                ev = INPUT_NONE;
+                displayRequestRepaint();
+                break;
             case INPUT_NEXT:
             case INPUT_VOL_UP:
             case INPUT_MODE_TOGGLE:
@@ -236,10 +243,6 @@ void loop() {
                 displayModalClose();   // restores prior mode
                 ev = INPUT_NONE;
                 displayRequestRepaint();
-                break;
-            case INPUT_SYS_INFO:
-                // Already in sysinfo; ignore.
-                ev = INPUT_NONE;
                 break;
             default: break;
         }
@@ -273,6 +276,67 @@ void loop() {
                 break;
             default: break;
         }
+    }
+    // WiFi picker: Mid short advances cursor, Mid double-click triggers
+    // a connect, Left/Right short cancels.
+    else if (displayActiveMode() == DM_WIFI_PICKER) {
+        switch (ev) {
+            case INPUT_NEXT:
+                displayWifiPickerAdvance();
+                ev = INPUT_NONE;
+                break;
+            case INPUT_PICKER_SELECT:
+            {
+                int idx = displayWifiPickerSelected();
+                if (idx >= 0) {
+                    const char *ssid = displayWifiPickerSsidAt(idx);
+                    // Look up stored creds; empty string if none.
+                    String pass;
+                    int n = wifiNetworkCount();
+                    for (int i = 0; i < n; i++) {
+                        if (String(ssid).equalsIgnoreCase(wifiNetworkSsid(i))) {
+                            pass = wifiNetworkPass(i);
+                            break;
+                        }
+                    }
+                    displayWifiConnectShow(ssid);
+                    displayDrawMain();   // draw the connecting screen now
+                    bool ok = netConnectAdhoc(String(ssid), pass, 12000,
+                                              displayWifiConnectTick);
+                    if (ok) {
+                        // Persist new SSID -> creds. wifiAddNetwork
+                        // updates in-place when SSID matches an
+                        // existing slot.
+                        wifiAddNetwork(String(ssid), pass);
+                        // Reconnect audio to the saved station on the
+                        // new network.
+                        audioStartLast();
+                    } else {
+                        displayWifiConnectFail(
+                            pass.length() ? "Saved password failed."
+                                          : "Open auth failed.");
+                        displayDrawMain();
+                        delay(1500);
+                    }
+                    displayWifiConnectDone(ok);
+                    displayRequestRepaint();
+                }
+                ev = INPUT_NONE;
+                break;
+            }
+            case INPUT_MODE_TOGGLE:
+            case INPUT_VOL_UP:
+                displayModalClose();
+                displayRequestRepaint();
+                ev = INPUT_NONE;
+                break;
+            default: break;
+        }
+    }
+    // Connect screen is purely informational; eat all short input so a
+    // bouncing button doesn't cancel mid-connect.
+    else if (displayActiveMode() == DM_WIFI_CONNECT) {
+        if (ev != INPUT_SLEEP) ev = INPUT_NONE;
     }
 
     switch (ev) {

@@ -127,9 +127,13 @@ void upsertScan(const String &ssid, int32_t rssi, uint8_t enc, uint8_t channel) 
 }
 
 // Ordered insertion: try this network for up to timeoutMs. Polls abortCb
-// frequently so the caller can break out. Returns true if it joined.
+// frequently so the caller can break out. progressCb is called every
+// loop iteration with elapsed ms; intended for the CLI's growing-dots
+// indicator and the on-device connecting screen. Returns true if it
+// joined.
 bool tryJoin(const char *ssid, const char *pass, uint32_t timeoutMs,
-             bool (*abortCb)()) {
+             bool (*abortCb)(),
+             void (*progressCb)(uint32_t elapsedMs) = nullptr) {
     WiFi.disconnect(false, true);  // clear previous config without erasing creds
     delay(50);
     s_lastDisconnectReason = 0;
@@ -146,6 +150,7 @@ bool tryJoin(const char *ssid, const char *pass, uint32_t timeoutMs,
                           ssid, wlStatusName(st));
             return false;
         }
+        if (progressCb) progressCb(millis() - start);
         delay(100);
     }
     Serial.printf("net: tryJoin '%s' timed out (status=%s, last reason=%u %s)\r\n",
@@ -275,11 +280,12 @@ const ScanResult *netScanResult(int idx) {
     return &s_scan[idx];
 }
 
-bool netConnectAdhoc(const String &ssid, const String &pass, uint32_t timeoutMs) {
+bool netConnectAdhoc(const String &ssid, const String &pass, uint32_t timeoutMs,
+                     void (*progressCb)(uint32_t elapsedMs)) {
     if (ssid.length() == 0) return false;
     s_lastJoinedSlot = -1;
     Serial.printf("net: ad-hoc connect to '%s'...\r\n", ssid.c_str());
-    return tryJoin(ssid.c_str(), pass.c_str(), timeoutMs, nullptr);
+    return tryJoin(ssid.c_str(), pass.c_str(), timeoutMs, nullptr, progressCb);
 }
 
 // ---- Diagnostics --------------------------------------------------------

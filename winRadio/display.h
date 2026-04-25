@@ -47,10 +47,12 @@ void displayDrawScroll();
 // clock" mode hides the now-playing card and station switcher and shows
 // a large HH:MM:SS in the centre; the banner + footer stay put.
 enum DisplayMode {
-    DM_NOW_PLAYING = 0,
-    DM_BIG_CLOCK   = 1,
-    DM_SYS_INFO    = 2,   // long-press Right -> battery + WiFi + IP
-    DM_PICKER      = 3,   // long-press Mid  -> 3x3 station grid
+    DM_NOW_PLAYING  = 0,
+    DM_BIG_CLOCK    = 1,
+    DM_SYS_INFO     = 2,   // long-press Right -> battery + WiFi + IP
+    DM_PICKER       = 3,   // long-press Mid  -> 3x3 station grid
+    DM_WIFI_PICKER  = 4,   // long-press Right while in sysinfo -> SSID grid
+    DM_WIFI_CONNECT = 5,   // showing "connecting to <ssid>..." progress
 };
 void        displaySetMode(DisplayMode m);
 void        displayToggleMode();          // cycles only between NowPlaying / BigClock
@@ -63,6 +65,21 @@ void displayPickerOpen();                 // resets cursor to current slot
 void displayPickerAdvance();              // advance cursor (with paging)
 int  displayPickerSelectedSlot();         // current cursor index
 void displayModalClose();                 // restore prior home mode
+
+// WiFi picker (3x3 grid of scanned SSIDs, paged like the station picker).
+void displayWifiPickerOpen();             // triggers a scan, sets mode
+void displayWifiPickerAdvance();          // advance cursor through SSID list
+int  displayWifiPickerSelected();         // index into the scan-result list, -1 if empty
+int  displayWifiPickerSsidCount();
+const char *displayWifiPickerSsidAt(int i);
+
+// "Connecting to <ssid>..." progress screen. Caller fills the elapsed
+// counter via displayWifiConnectTick(); displayWifiConnectShow() opens
+// the screen with the target SSID.
+void displayWifiConnectShow(const char *ssid);
+void displayWifiConnectTick(uint32_t elapsedMs);
+void displayWifiConnectFail(const char *reason);   // briefly shows error
+void displayWifiConnectDone(bool ok);              // restores prior mode if ok
 
 // Lightweight: ask for a full repaint at the next loop tick.
 void displayRequestRepaint();

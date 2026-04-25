@@ -9,6 +9,7 @@
 #include "NotoSansBold15.h"
 
 #include <cstdio>
+#include <vector>
 
 #include <Arduino_GFX_Library.h>
 #include <LovyanGFX.hpp>
@@ -65,11 +66,25 @@ constexpr int kOnAirScrollH = 14;
 static int          s_onAirPosition = -220;
 static DisplayMode  s_mode = DM_NOW_PLAYING;
 
-// Mode that DM_SYS_INFO / DM_PICKER were opened from -- restored on close.
+// Mode that DM_SYS_INFO / DM_PICKER / DM_WIFI_PICKER were opened from --
+// restored on close.
 static DisplayMode  s_priorMode = DM_NOW_PLAYING;
 
 // Station-picker cursor: 0..stationsCount()-1. Page = cursor/9.
 static int          s_pickerCursor = 0;
+
+// WiFi-picker state: cursor + cached SSID list. SSIDs are captured into
+// the cache when Open is called so the grid renders consistently even
+// when net's scan vector is mutated by a background re-scan.
+static int                  s_wifiCursor = 0;
+static std::vector<String>  s_wifiSsids;
+static std::vector<int>     s_wifiRssi;
+
+// WiFi connect progress screen.
+static String       s_wifiConnectSsid;
+static uint32_t     s_wifiConnectElapsedMs = 0;
+static String       s_wifiConnectMessage;
+static bool         s_wifiConnectFlash = false;
 
 void        displaySetMode(DisplayMode m) { s_mode = m; s_repaint = true; }
 void        displayToggleMode()           {
@@ -487,7 +502,8 @@ static DisplayMode s_lastMode = (DisplayMode)-1;
 
 void displayDrawScroll() {
     // The modal screens own the entire panel; don't overlay the song ticker.
-    if (s_mode == DM_SYS_INFO || s_mode == DM_PICKER) return;
+    if (s_mode == DM_SYS_INFO || s_mode == DM_PICKER ||
+        s_mode == DM_WIFI_PICKER || s_mode == DM_WIFI_CONNECT) return;
 
     const uint16_t bg = g_theme.bg;
     const char *song = audioSongPlaying();
@@ -1019,8 +1035,219 @@ int displayPickerSelectedSlot() {
 
 void displayModalClose() {
     DisplayMode home = s_priorMode;
-    if (home == DM_PICKER || home == DM_SYS_INFO) home = DM_NOW_PLAYING;
+    if (home == DM_PICKER || home == DM_SYS_INFO ||
+        home == DM_WIFI_PICKER || home == DM_WIFI_CONNECT) {
+        home = DM_NOW_PLAYING;
+    }
     displaySetMode(home);
+}
+
+// ---------------------------------------------------------------------------
+// WiFi picker. 3x3 grid of scanned SSIDs. Same nav UX as the station
+// picker. Opening triggers a fresh scan and snapshots the SSID list so
+// the grid is stable while the user navigates it.
+// ---------------------------------------------------------------------------
+
+void displayWifiPickerOpen() {
+    rememberPrior();
+    // Show a quick "Scanning..." message synchronously so the user
+    // doesn't wait for the ~2-3 s blocking scan with stale UI.
+    displayShowMessage("Scanning WiFi...", "Hold tight.", nullptr);
+    s_wifiSsids.clear();
+    s_wifiRssi.clear();
+    int n = netScanNow();
+    for (int i = 0; i < n; i++) {
+        const ScanResult *r = netScanResult(i);
+        if (!r) continue;
+        if (r->ssid.length() == 0) continue;
+        s_wifiSsids.push_back(r->ssid);
+        s_wifiRssi.push_back(r->rssi);
+    }
+    s_wifiCursor = 0;
+    displaySetMode(DM_WIFI_PICKER);
+}
+
+void displayWifiPickerAdvance() {
+    if (s_wifiSsids.empty()) return;
+    s_wifiCursor++;
+    if (s_wifiCursor >= (int)s_wifiSsids.size()) s_wifiCursor = 0;
+    s_repaint = true;
+}
+int displayWifiPickerSelected() {
+    if (s_wifiSsids.empty()) return -1;
+    return s_wifiCursor;
+}
+int displayWifiPickerSsidCount() { return (int)s_wifiSsids.size(); }
+const char *displayWifiPickerSsidAt(int i) {
+    if (i < 0 || i >= (int)s_wifiSsids.size()) return "";
+    return s_wifiSsids[i].c_str();
+}
+
+static void drawWifiPicker() {
+    const uint16_t bg     = g_theme.bg;
+    const uint16_t orange = g_theme.orange;
+    auto &g = g_theme.grays;
+
+    s_sprite.fillRect(0, 0, 240, 240, bg);
+
+    int total = (int)s_wifiSsids.size();
+    if (s_wifiCursor < 0)      s_wifiCursor = 0;
+    if (s_wifiCursor >= total) s_wifiCursor = total ? total - 1 : 0;
+    int page  = (total > 0) ? (s_wifiCursor / 9) : 0;
+    int pages = (total > 0) ? ((total + 8) / 9) : 1;
+    int first = page * 9;
+    int last  = min(first + 9, total) - 1;
+
+    s_sprite.fillRect(0, 0, 240, 28, TFT_BLACK);
+    s_sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+    s_sprite.drawString("Pick WiFi", 6, 6, 2);
+    char hdr[24];
+    if (total == 0) snprintf(hdr, sizeof(hdr), "(no scan)");
+    else            snprintf(hdr, sizeof(hdr), "%d-%d / %d", first + 1, last + 1, total);
+    s_sprite.setTextColor(TFT_CYAN, TFT_BLACK);
+    s_sprite.drawString(hdr, 144, 6, 2);
+    s_sprite.fillRect(0, 28, 240, 1, orange);
+
+    constexpr int cellW = 78, cellH = 60, gx = 2, gy = 32;
+    for (int i = 0; i < 9; i++) {
+        int row = i / 3, col = i % 3;
+        int cx  = gx + col * (cellW + 2);
+        int cy  = gy + row * (cellH + 2);
+        int idx = first + i;
+        bool inUse = idx < total;
+        bool isCur = inUse && (idx == s_wifiCursor);
+
+        uint16_t cellBg = isCur ? g_theme.volumeBar : g[14];
+        uint16_t cellBd = isCur ? TFT_YELLOW : g[10];
+        uint16_t cellTx = isCur ? TFT_BLACK  : (inUse ? TFT_WHITE : g[6]);
+
+        s_sprite.fillRoundRect(cx, cy, cellW, cellH, 4, cellBg);
+        s_sprite.drawRoundRect(cx, cy, cellW, cellH, 4, cellBd);
+        if (isCur) s_sprite.drawRoundRect(cx + 1, cy + 1, cellW - 2, cellH - 2, 4, TFT_YELLOW);
+
+        if (inUse) {
+            // Signal-strength bars top-right.
+            int rssi = s_wifiRssi[idx];
+            int bars = 0;
+            if      (rssi >= -55) bars = 4;
+            else if (rssi >= -65) bars = 3;
+            else if (rssi >= -75) bars = 2;
+            else if (rssi >= -85) bars = 1;
+            for (int b = 0; b < 4; b++) {
+                int barH = 4 + b * 2;
+                int bx = cx + cellW - 22 + b * 5;
+                int by = cy + 4 + (10 - barH);
+                uint16_t c = (b < bars) ? cellTx : g[10];
+                s_sprite.fillRect(bx, by, 3, barH, c);
+            }
+            // SSID name, two-line wrap if needed.
+            String nm = s_wifiSsids[idx];
+            if (nm.length() > 22) nm = nm.substring(0, 22);
+            String row1 = nm, row2;
+            if (nm.length() > 11) {
+                int br = nm.lastIndexOf(' ', 11);
+                if (br < 4) br = 11;
+                row1 = nm.substring(0, br);
+                row2 = nm.substring(br);
+                row1.trim(); row2.trim();
+            }
+            s_sprite.setTextColor(cellTx, cellBg);
+            s_sprite.drawString(row1, cx + 4, cy + 22, 1);
+            if (row2.length()) s_sprite.drawString(row2, cx + 4, cy + 36, 1);
+        }
+    }
+
+    s_sprite.fillRect(0, 217, 240, 1, orange);
+    s_sprite.setTextColor(g[6], bg);
+    if (total == 0) {
+        s_sprite.drawString("Scan empty -- L/R: exit", 6, 222, 1);
+    } else if (pages > 1) {
+        char hint[48];
+        snprintf(hint, sizeof(hint),
+                 "Mid: next  Mid x2: connect  L/R: exit  p%d/%d",
+                 page + 1, pages);
+        s_sprite.drawString(hint, 6, 222, 1);
+    } else {
+        s_sprite.drawString("Mid: next  Mid x2: connect  L/R: exit",
+                            6, 222, 1);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// "Connecting to <ssid>..." progress screen.
+// ---------------------------------------------------------------------------
+
+void displayWifiConnectShow(const char *ssid) {
+    rememberPrior();
+    s_wifiConnectSsid       = ssid ? ssid : "";
+    s_wifiConnectElapsedMs  = 0;
+    s_wifiConnectMessage    = "";
+    s_wifiConnectFlash      = false;
+    displaySetMode(DM_WIFI_CONNECT);
+}
+void displayWifiConnectTick(uint32_t elapsedMs) {
+    // We're called from inside the blocking netConnectAdhoc loop, so
+    // the main loop's repaint dispatcher isn't running. Draw inline,
+    // throttled to ~5 Hz so we don't melt the SPI bus.
+    static uint32_t lastDraw = 0;
+    s_wifiConnectElapsedMs = elapsedMs;
+    if (elapsedMs - lastDraw < 200 && lastDraw != 0) return;
+    lastDraw = elapsedMs;
+    if (s_mode == DM_WIFI_CONNECT) displayDrawMain();
+}
+void displayWifiConnectFail(const char *reason) {
+    s_wifiConnectMessage = reason ? reason : "Connect failed.";
+    s_wifiConnectFlash   = true;
+    s_repaint = true;
+}
+void displayWifiConnectDone(bool ok) {
+    if (ok) {
+        // Success: jump to Now Playing regardless of where we came from.
+        displaySetMode(DM_NOW_PLAYING);
+    } else {
+        displaySetMode(DM_WIFI_PICKER);
+    }
+}
+
+static void drawWifiConnect() {
+    const uint16_t bg     = g_theme.bg;
+    const uint16_t orange = g_theme.orange;
+    auto &g = g_theme.grays;
+
+    s_sprite.fillRect(0, 0, 240, 240, bg);
+    s_sprite.fillRect(0, 0, 240, 28, TFT_BLACK);
+    s_sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+    s_sprite.drawString("Connecting", 6, 6, 2);
+    s_sprite.fillRect(0, 28, 240, 1, orange);
+
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("To:", 8, 50, 2);
+    String nm = s_wifiConnectSsid;
+    if (nm.length() > 22) nm = nm.substring(0, 22);
+    s_sprite.setTextColor(TFT_CYAN, bg);
+    s_sprite.drawString(nm, 60, 50, 2);
+
+    // Growing dots indicator.
+    int dots = (s_wifiConnectElapsedMs / 250) % 16;
+    String d;
+    for (int i = 0; i < dots; i++) d += '.';
+    s_sprite.setTextColor(TFT_YELLOW, bg);
+    s_sprite.drawString(d, 8, 90, 4);
+
+    // Elapsed time.
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%lus elapsed", (unsigned long)(s_wifiConnectElapsedMs / 1000));
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString(buf, 8, 150, 2);
+
+    if (s_wifiConnectMessage.length()) {
+        s_sprite.setTextColor(TFT_RED, bg);
+        s_sprite.drawString(s_wifiConnectMessage, 8, 178, 2);
+    }
+
+    s_sprite.fillRect(0, 217, 240, 1, orange);
+    s_sprite.setTextColor(g[6], bg);
+    s_sprite.drawString("Please wait...", 6, 222, 1);
 }
 
 void displayDrawMain() {
@@ -1034,6 +1261,18 @@ void displayDrawMain() {
     }
     if (s_mode == DM_PICKER) {
         drawPicker();
+        blitSprite(s_sprite, 0, 0, DISPLAY_W, DISPLAY_H);
+        s_repaint = false;
+        return;
+    }
+    if (s_mode == DM_WIFI_PICKER) {
+        drawWifiPicker();
+        blitSprite(s_sprite, 0, 0, DISPLAY_W, DISPLAY_H);
+        s_repaint = false;
+        return;
+    }
+    if (s_mode == DM_WIFI_CONNECT) {
+        drawWifiConnect();
         blitSprite(s_sprite, 0, 0, DISPLAY_W, DISPLAY_H);
         s_repaint = false;
         return;

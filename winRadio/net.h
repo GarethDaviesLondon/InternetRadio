@@ -34,9 +34,12 @@ struct ScanResult {
 
 // One-shot connect that bypasses the saved-list loop. Used by the CLI's
 // `wifi connect <ssid> [pass]` so users can force-try a hotspot that
-// doesn't show up in the scan.
+// doesn't show up in the scan. progressCb is invoked roughly every
+// 100 ms with the elapsed milliseconds, so callers can render a
+// growing "..." or a connecting screen.
 bool netConnectAdhoc(const String &ssid, const String &pass,
-                     uint32_t timeoutMs = 10000);
+                     uint32_t timeoutMs = 10000,
+                     void (*progressCb)(uint32_t elapsedMs) = nullptr);
 
 // Synchronous blocking scan. Returns number of APs found; results are
 // cached internally and accessed via netScanResult(i). Uniques SSIDs

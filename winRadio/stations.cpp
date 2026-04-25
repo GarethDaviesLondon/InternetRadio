@@ -1,25 +1,15 @@
 #include "stations.h"
+#include "stations_defaults.h"
 #include "storage.h"
 
 #include <Arduino.h>
 
 namespace {
-struct Preset { const char *name; const char *url; };
-
-// Compiled-in presets. Used once, on first boot, when NVS has no
-// "cnt" key and SD has no /stations.csv. After that everything is
-// edited in NVS.
-const Preset kDefaults[] = {
-    { "SomaFM Groove Salad", "http://ice1.somafm.com/groovesalad-128-mp3"        },
-    { "Disco Diamond",       "https://discodiamond.radioca.st/autodj"           },
-    { "Radio King 175279",   "https://listen.radioking.com/radio/175279/stream/216784" },
-    { "Radio Caroline",      "http://sc6.radiocaroline.net:8040/stream"         },
-    { "Raute Musik Club",    "https://club-high.rautemusik.fm/;"                },
-    { "WGMC Jazz",           "http://greece-media.monroe.edu/wgmc.mp3"          },
-    { "Radio Banovina",      "https://audio.radio-banovina.hr:9998/;"           },
-    { "Radio Paradise",      "http://stream.radioparadise.com/mp3-128"          },
-};
-constexpr int kDefaultCount = sizeof(kDefaults) / sizeof(kDefaults[0]);
+// The compiled-in defaults live in stations_defaults.h so the user can
+// edit them without touching this implementation file.
+using stationsDefaults::Preset;
+using stationsDefaults::kPresets;
+constexpr int kDefaultCount = stationsDefaults::kPresetCount;
 
 // RAM-resident active list. Contiguous -- s_list[0..s_count-1] is the
 // full active list. Beyond s_count the slots are unused.
@@ -58,8 +48,8 @@ bool persistOne(int i) {
 void seedFromDefaults() {
     s_count = 0;
     for (int i = 0; i < kDefaultCount && i < kMaxStations; i++) {
-        s_list[s_count].name = kDefaults[i].name;
-        s_list[s_count].url  = kDefaults[i].url;
+        s_list[s_count].name = kPresets[i].name;
+        s_list[s_count].url  = kPresets[i].url;
         s_count++;
     }
     persistAll();

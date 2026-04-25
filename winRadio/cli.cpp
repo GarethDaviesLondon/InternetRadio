@@ -11,6 +11,9 @@
 #include "display.h"
 #include "log.h"
 #include "clock.h"
+#include "discover.h"
+
+#include <vector>
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -101,6 +104,13 @@ static void cmdHelp() {
     outln(F("  station del <n>        Delete slot N (list shifts down)"));
     outln(F("  station reset-all      Wipe list and reseed defaults"));
     outln(F("  next / prev            Cycle stations"));
+    outln();
+    outln(F("  find <text>            Search Radio-Browser for stations"));
+    outln(F("  find tag <tag>         Search by genre / tag"));
+    outln(F("  find country <name>    Search by country"));
+    outln(F("  find list              Show the last search's results"));
+    outln(F("  find play <n>          Preview hit N (no save)"));
+    outln(F("  find save <n>          Add hit N to the station list"));
     outln(F("  volume [n], vol [n]    Show or set volume (1..5)"));
     outln(F("  vol+ / vol- / + / -    Step volume"));
     outln();
@@ -109,7 +119,8 @@ static void cmdHelp() {
     outln(F("  wifi list              List saved networks (ordered)"));
     outln(F("  wifi add [ssid]        Add a network (interactive: scan + pick + pass)"));
     outln(F("  wifi connect <ssid> [pass]"));
-    outln(F("                         Ad-hoc connect; offers to save on success"));
+    outln(F("                         Connects (uses saved creds if known); offers"));
+    outln(F("                         to save on success, prompt to update on fail"));
     outln(F("  wifi                   Alias for 'wifi add'"));
     outln(F("  wifi remove <n>        Remove saved network N"));
     outln(F("  wifi move <from> <to>  Reorder saved networks"));
@@ -245,6 +256,96 @@ static void cmdStationResetAll() {
     outln(F(" entries."));
 }
 
+// Cached results from the most recent CLI search, so "find save <n>" /
+// "find play <n>" can refer back to them by 1-based index.
+static std::vector<DiscoverHit> g_findHits;
+static String                    g_findQuery;
+
+static void printFindUsage() {
+    outln();
+    outln(F("Usage:"));
+    outln(F("  find <text>             search station name (Radio-Browser)"));
+    outln(F("  find tag <tag>          search by genre/tag"));
+    outln(F("  find country <name>     search by country"));
+    outln(F("  find list               list last search results"));
+    outln(F("  find play <n>           preview hit N (does NOT save)"));
+    outln(F("  find save <n>           append hit N to the station list"));
+    outln();
+}
+
+static void printFindHits() {
+    if (g_findHits.empty()) { outln(F("No results. Run a search first.")); return; }
+    outln();
+    Serial.print(F("Last query: ")); outln(g_findQuery.c_str());
+    for (size_t i = 0; i < g_findHits.size(); i++) {
+        const auto &h = g_findHits[i];
+        if (i + 1 < 10) Serial.write(' ');
+        Serial.print(i + 1); Serial.print(F(". "));
+        Serial.print(h.name);
+        Serial.print(F("   ["));
+        if (h.bitrate > 0) { Serial.print(h.bitrate); Serial.print(F(" kbps ")); }
+        Serial.print(h.codec);
+        if (h.country.length()) { Serial.print(F(" / ")); Serial.print(h.country); }
+        outln(F("]"));
+        Serial.print(F("       ")); outln(h.url.c_str());
+    }
+    outln();
+}
+
+static void runFindSearch(const String &q, const String &tag, const String &country) {
+    g_findQuery = "name='" + q + "' tag='" + tag + "' country='" + country + "'";
+    g_findHits.clear();
+    Serial.print(F("Searching... "));
+    int n = discoverSearch(q, tag, country, 25, g_findHits);
+    outln();
+    if (n < 0) {
+        Serial.print(F("Search failed: ")); outln(discoverLastError()); return;
+    }
+    if (g_findHits.empty()) {
+        outln(F("No matches. Try a different term or 'find tag <genre>'."));
+        return;
+    }
+    printFindHits();
+    outln(F("Use 'find save <n>' to add a hit to the station list."));
+    outln(F("Use 'find play <n>' to preview without saving."));
+}
+
+static void cmdFind(const String &arg) {
+    String a = arg; a.trim();
+    if (a.length() == 0) { printFindUsage(); return; }
+
+    String sub, rest;
+    splitArg(a, sub, rest);
+
+    if (eqi(sub, "list"))           { printFindHits(); return; }
+    if (eqi(sub, "tag"))            { runFindSearch("", rest, "");     return; }
+    if (eqi(sub, "country"))        { runFindSearch("", "",   rest);   return; }
+
+    if (eqi(sub, "save") || eqi(sub, "play")) {
+        int n = rest.toInt();
+        if (n < 1 || n > (int)g_findHits.size()) {
+            Serial.print(F("Index must be 1..")); Serial.println(g_findHits.size());
+            return;
+        }
+        const auto &h = g_findHits[n - 1];
+        if (eqi(sub, "save")) {
+            int idx = stationsAdd(h.name, h.url);
+            if (idx < 0) {
+                outln(F("Save failed (list full or NVS full)."));
+                return;
+            }
+            Serial.print(F("Added as slot ")); Serial.println(idx + 1);
+        } else {
+            Serial.print(F("Previewing: ")); outln(h.url.c_str());
+            audioPlayAdhoc(h.url.c_str(), h.name.c_str());
+        }
+        return;
+    }
+
+    // Anything else: treat the whole arg as a free-text name search.
+    runFindSearch(a, "", "");
+}
+
 static void cmdVolume(const String &arg) {
     if (arg.length() == 0) {
         Serial.print(F("Volume: ")); Serial.println(audioVolume()); return;
@@ -305,6 +406,27 @@ static void cmdWifiScan(bool hard = false) {
     outln();
 }
 
+// Look up a stored password by SSID; empty string if not saved.
+static String storedPassFor(const String &ssid) {
+    int n = wifiNetworkCount();
+    for (int i = 0; i < n; i++) {
+        if (ssid.equalsIgnoreCase(wifiNetworkSsid(i))) {
+            return String(wifiNetworkPass(i));
+        }
+    }
+    return String();
+}
+
+// Progress dots during a connect. Prints one dot every ~750 ms; flushes
+// the line on success/fail (caller does that).
+static void cliWifiProgress(uint32_t elapsedMs) {
+    static uint32_t lastDot = 0;
+    if (lastDot == 0 || elapsedMs - lastDot >= 750) {
+        Serial.print('.');
+        lastDot = elapsedMs;
+    }
+}
+
 static void cmdWifiConnect(const String &rest) {
     // Parse: "SSID" OR "SSID password" OR "\"SSID with spaces\" password".
     String ssid, pass;
@@ -320,19 +442,70 @@ static void cmdWifiConnect(const String &rest) {
         if (sp < 0) { ssid = r; }
         else        { ssid = r.substring(0, sp); pass = r.substring(sp + 1); pass.trim(); }
     }
+
+    // If the user didn't supply a password, look up stored credentials
+    // for this SSID. If none, try with empty password (open auth) on
+    // the first attempt; we'll prompt for one if that fails.
+    bool usingStored = false;
+    if (pass.length() == 0) {
+        String stored = storedPassFor(ssid);
+        if (stored.length() > 0) {
+            pass = stored;
+            usingStored = true;
+        }
+    }
+
     outln();
-    Serial.print(F("Connecting to '")); Serial.print(ssid); outln(F("'..."));
-    if (netConnectAdhoc(ssid, pass, 12000)) {
-        outln(F("Connected."));
-        // Offer to save.
+    Serial.print(F("Connecting to '")); Serial.print(ssid); Serial.print(F("'"));
+    if (usingStored) Serial.print(F(" (using saved password)"));
+    Serial.print(F(" "));
+    bool ok = netConnectAdhoc(ssid, pass, 12000, cliWifiProgress);
+    outln();
+
+    // If the first attempt failed with no password, give the user a
+    // chance to type one and retry without losing the SSID they typed.
+    if (!ok && pass.length() == 0) {
+        outln(F("Connect failed without a password. The network probably needs one."));
+        String entered = readLineBlocking("Password (blank to abort): ", false);
+        entered.trim();
+        if (entered.length()) {
+            Serial.print(F("Retrying with password "));
+            ok = netConnectAdhoc(ssid, entered, 12000, cliWifiProgress);
+            outln();
+            if (ok) pass = entered;
+        }
+    }
+    // If the stored password failed, give a chance to update it.
+    else if (!ok && usingStored) {
+        outln(F("The saved password didn't work. The AP password may have changed."));
+        String entered = readLineBlocking("New password (blank to abort): ", false);
+        entered.trim();
+        if (entered.length()) {
+            Serial.print(F("Retrying with new password "));
+            ok = netConnectAdhoc(ssid, entered, 12000, cliWifiProgress);
+            outln();
+            if (ok) {
+                pass = entered;
+                wifiAddNetwork(ssid, pass);   // updates in-place if SSID already saved
+                outln(F("Saved password updated."));
+            }
+        }
+    }
+
+    if (!ok) {
+        outln(F("Connect failed. Check SSID / password, and band/security on the AP."));
+        return;
+    }
+
+    outln(F("Connected."));
+    if (!usingStored) {
+        // Offer to save (or update the stored password).
         outln(F("Save this network to the saved list? [y/N]"));
         String y = readLineBlocking("> ", false); y.trim();
         if (y.equalsIgnoreCase("y") || y.equalsIgnoreCase("yes")) {
             wifiAddNetwork(ssid, pass);
             outln(F("Saved."));
         }
-    } else {
-        outln(F("Connect failed. Check SSID / password, and band/security on the AP."));
     }
 }
 
@@ -521,6 +694,7 @@ static void dispatch(const String &raw) {
                  eqi(sub, "resetall"))   cmdStationResetAll();
         else                             cmdSelectStation(arg);
     }
+    else if (eqi(cmd, "find") || eqi(cmd, "search"))                         cmdFind(arg);
     else if (eqi(cmd, "next"))                                               { audioNextStation(); cmdStatus(); }
     else if (eqi(cmd, "prev"))                                               { audioPrevStation(); cmdStatus(); }
     else if (eqi(cmd, "volume") || eqi(cmd, "vol") || eqi(cmd, "v"))         cmdVolume(arg);

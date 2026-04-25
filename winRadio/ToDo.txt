@@ -1,27 +1,71 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
 
- I am currently on a wifi system that does not let me route between nodes on the network (so unit unreachable) so
- can't use the webserver interface. I cannot reconnect the unit to my phone hotspot alongside my lap top, because
- it defaults back to the last good connection, even if I try to use the CLI to change node. So:
+== Changes made in this round (3-5-2026) ========================================
 
-Enable a way to specify which SSID to connect to:
+WiFi: on-device picker
+-----------------------
+  1. New display modes DM_WIFI_PICKER + DM_WIFI_CONNECT. From the
+     System-info screen, a second long-press on the Right button
+     (>= 2 s) opens the WiFi picker.
+  2. Picker layout mirrors the station picker: 3x3 grid of cards,
+     paged. Each card shows the SSID (wrapped to 2 lines) and a
+     small 4-bar signal-strength indicator in the top-right.
+  3. Mid short = advance cursor in reading order (auto-pages every
+     9 cells, wraps); Mid double-click = connect to the highlighted
+     SSID; Left or Right short = cancel back to System info.
+  4. On select: looks up the SSID in the saved-credentials list. If
+     found, uses the stored password; otherwise tries open auth.
+     Switches to the DM_WIFI_CONNECT screen showing "Connecting to
+     <ssid>...", a growing dot indicator and an elapsed-seconds
+     counter. Repaint runs inline at ~5 Hz from netConnectAdhoc's
+     progress callback so the UI doesn't freeze.
+  5. On success: SSID/password are persisted via wifiAddNetwork
+     (which updates in place if the SSID was already saved), audio
+     is reconnected via audioStartLast(), and the screen switches
+     to Now Playing.
+  6. On failure: shows a brief "Saved password failed." or "Open
+     auth failed." message for 1.5 s, then falls back to the WiFi
+     picker so the user can pick another network.
+  7. While the picker scan is running (~2-3 s blocking), a quick
+     "Scanning WiFi..." status message is shown in place of the
+     stale System-info screen.
 
-1. Once in the System info page, another long press should bring up a list of wifi SSID use similar navigation experience
-to station select - 3x3 matrix, short press move along, double press select. If now password saved try to connect without
-one, if fail report. When connecting bring up a screen that says trying to connect to.... show progress, if fail revert to
-the wifi node selection, if successful move to the now playing screen.
+WiFi: improved CLI connect flow
+--------------------------------
+  8. `wifi connect <ssid>` (no password): now looks up stored
+     credentials for that SSID and uses them; if none are saved
+     it tries open auth on the first attempt, then prompts for
+     a password if that fails.
+  9. `wifi connect <ssid> <pass>`: ad-hoc connect with the supplied
+     password; offered to save on success.
+ 10. If a stored password fails (AP password rotated), the CLI
+     prompts for a replacement and updates the saved entry on
+     successful retry.
+ 11. New shared progress callback type (void(*)(uint32_t)) on
+     netConnectAdhoc and tryJoin so callers (CLI, on-device
+     picker) can render their own progress UI. CLI prints a dot
+     every ~750 ms during the join.
 
-2. Enable specification of which wifi node to connect to using the CLI, devise way of handing nodes with stored 
-credentials. Either use the creds stored, or on request, replace the stored creds. Perhaps if wifi is known try
-stored creds, if fail ask for password. Update CLI wiht progress as connecting - like growing line of ... or similar.
-
-Enable way to search and select stations using CLI
-
-3. If not there already create a simple CLI for searching for stations and storing them in the unit. I
-
-3. Enable easy modification of compile-time default station list. Is it in a standalone config file / .h file or simimlar
-in the code base? If it is point me to it, if not please do it, so when I recompile I can have known set of stations. 
+Stations: CLI search + standalone defaults
+-------------------------------------------
+ 12. New CLI `find` command set:
+       find <text>           -- name search
+       find tag <tag>        -- genre search
+       find country <name>   -- country search
+       find list             -- show last results
+       find play <n>         -- preview hit N (no save)
+       find save <n>         -- append hit N to the station list
+     Backed by the existing discoverSearch() Radio-Browser client
+     (the same code the /discover web page uses), so feature parity
+     is automatic.
+ 13. New file: winRadio/stations_defaults.h. The compiled-in seed
+     list now lives there as a single inline-constexpr array. To
+     change the factory default stations: edit stations_defaults.h,
+     rebuild, and (if you want existing flashed units to reseed)
+     run "station reset-all" via the CLI / web. stations.cpp is
+     unchanged from a code structure point of view; it just pulls
+     the array in via #include.
 
 
 == Changes made in this round (2-5-2026) ========================================
