@@ -1,6 +1,31 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
 
+== Changes made in this round (7-5-2026 -- captive AP fallback) ================
+
+Captive portal stranding fix
+  1. Reported: when the radio joined a captive network and got
+     stuck on the DM_CAPTIVE screen, the SoftAP was no longer
+     broadcasting -- so there was no way for the user to switch to
+     a different SSID without rebooting.
+  2. Cause: provisionStop() ran as soon as netConnect() succeeded
+     (before the captive probe), tearing the AP down. The user was
+     then trapped between an unauthenticated captive network and
+     no fallback control surface.
+  3. Fix: in every place where we open the DM_CAPTIVE screen we
+     also call provisionStartBackground() if the AP isn't already
+     up. Three call sites:
+       - boot-time captive probe in winRadio.ino setup()
+       - on-device WiFi-picker connect that lands on a captive
+       - CLI `wifi connect` and `captive` commands
+  4. When the periodic 15 s probe later sees CAPTIVE_ONLINE we
+     tear the AP back down (provisionStop), since internet now
+     flows and the AP is no longer needed.
+  5. Updated the DM_CAPTIVE on-screen text from "once the portal
+     lets us through" to "Or: connect to AP 'ON8CIT-Setup' to
+     switch / abort", so the user knows the fallback exists.
+
+
 == Changes made in this round (7-5-2026) ========================================
 
 User-chosen network = boot default

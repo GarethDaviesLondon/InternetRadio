@@ -221,12 +221,17 @@ void setup() {
     // Boot-time captive-portal probe. If the freshly-joined network
     // is intercepting HTTP, surface the situation on the LCD instead
     // of letting the radio sit silently with audio that won't start.
+    // Also bring the SoftAP portal back up so the user has a control
+    // surface (abort, switch SSID, reorder) while we wait for the
+    // captive login -- otherwise they'd be stuck with whatever
+    // network the radio chose without any way to redirect it.
     if (netConnected()) {
         CaptiveStatus cs = netCheckCaptive();
         Serial.printf("captive: boot probe -> %s\r\n", netCaptiveStatusName(cs));
         if (cs == CAPTIVE_PORTAL) {
             String ssid = netCurrentSsid();
             displayCaptiveOpen(ssid.c_str(), netCaptivePortalUrl());
+            provisionStartBackground();
         }
     }
 
@@ -256,6 +261,10 @@ void loop() {
             audioStartLast();
             displayCaptiveDismiss();
             displayRequestRepaint();
+            // The portal kept the SoftAP up as a fallback control
+            // surface; with internet flowing again it's no longer
+            // needed and can be torn down.
+            if (provisionActive()) provisionStop();
         }
     }
 
@@ -383,6 +392,11 @@ void loop() {
                         CaptiveStatus cs = netCheckCaptive();
                         if (cs == CAPTIVE_PORTAL) {
                             displayCaptiveOpen(ssid, netCaptivePortalUrl());
+                            // Bring the SoftAP back up so the user has
+                            // a control surface (abort, switch SSID,
+                            // reorder) while waiting for the captive
+                            // login to clear.
+                            if (!provisionActive()) provisionStartBackground();
                         } else {
                             audioStartLast();
                         }

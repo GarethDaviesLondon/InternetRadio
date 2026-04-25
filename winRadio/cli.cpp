@@ -523,6 +523,10 @@ static void cmdWifiConnect(const String &rest) {
         Serial.print(F("Portal URL: ")); outln(netCaptivePortalUrl());
         outln(F("Open that URL on a phone on the same WiFi and sign in."));
         displayCaptiveOpen(ssid.c_str(), netCaptivePortalUrl());
+        if (!provisionActive()) {
+            provisionStartBackground();
+            outln(F("Setup AP brought up so you can change networks if needed."));
+        }
     }
     if (!usingStored) {
         // Offer to save (or update the stored password).
@@ -669,6 +673,10 @@ static void cmdCaptive() {
         // Surface it on the display too.
         String ssid = netCurrentSsid();
         displayCaptiveOpen(ssid.c_str(), netCaptivePortalUrl());
+        if (!provisionActive()) {
+            provisionStartBackground();
+            outln(F("Setup AP brought up so you can change networks if needed."));
+        }
     } else if (cs == CAPTIVE_ONLINE) {
         outln(F("Internet looks open."));
     } else if (cs == CAPTIVE_OFFLINE) {

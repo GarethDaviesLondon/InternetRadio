@@ -1353,8 +1353,9 @@ static void drawCaptive() {
     }
 
     s_sprite.setTextColor(g[2], bg);
-    s_sprite.drawString("Audio resumes automatically", 8, 170, 1);
-    s_sprite.drawString("once the portal lets us through.", 8, 182, 1);
+    s_sprite.drawString("Audio resumes when portal clears.", 8, 168, 1);
+    s_sprite.drawString("Or: connect to AP 'ON8CIT-Setup'", 8, 182, 1);
+    s_sprite.drawString("to switch / abort.", 8, 194, 1);
 
     s_sprite.fillRect(0, 217, 240, 1, orange);
     s_sprite.setTextColor(g[6], bg);
