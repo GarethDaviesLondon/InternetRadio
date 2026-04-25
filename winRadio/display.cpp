@@ -504,7 +504,7 @@ void displayDrawScroll() {
     // The modal screens own the entire panel; don't overlay the song ticker.
     if (s_mode == DM_SYS_INFO || s_mode == DM_PICKER ||
         s_mode == DM_WIFI_PICKER || s_mode == DM_WIFI_CONNECT ||
-        s_mode == DM_STATION_DETAIL) return;
+        s_mode == DM_STATION_DETAIL || s_mode == DM_CAPTIVE) return;
 
     const uint16_t bg = g_theme.bg;
     const char *song = audioSongPlaying();
@@ -1020,6 +1020,19 @@ void displayStationDetailOpen() {
     displaySetMode(DM_STATION_DETAIL);
 }
 
+static String s_captiveSsid;
+static String s_captivePortalUrl;
+
+void displayCaptiveOpen(const char *ssid, const char *portalUrl) {
+    rememberPrior();
+    s_captiveSsid       = ssid ? ssid : "";
+    s_captivePortalUrl  = portalUrl ? portalUrl : "";
+    displaySetMode(DM_CAPTIVE);
+}
+void displayCaptiveDismiss() {
+    if (s_mode == DM_CAPTIVE) displayModalClose();
+}
+
 void displayPickerOpen() {
     rememberPrior();
     s_pickerCursor = audioCurrentStation();
@@ -1052,7 +1065,7 @@ void displayModalClose() {
     DisplayMode home = s_priorMode;
     if (home == DM_PICKER || home == DM_SYS_INFO ||
         home == DM_WIFI_PICKER || home == DM_WIFI_CONNECT ||
-        home == DM_STATION_DETAIL) {
+        home == DM_STATION_DETAIL || home == DM_CAPTIVE) {
         home = DM_NOW_PLAYING;
     }
     displaySetMode(home);
@@ -1294,6 +1307,54 @@ static void drawStationDetail() {
 }
 
 // ---------------------------------------------------------------------------
+// Captive-portal screen. Surfaces the situation when the WiFi join
+// succeeded but the network is intercepting HTTP and demanding a
+// browser login. Shown until netCheckCaptive() reports CAPTIVE_ONLINE.
+// ---------------------------------------------------------------------------
+static void drawCaptive() {
+    const uint16_t bg     = g_theme.bg;
+    const uint16_t orange = g_theme.orange;
+    auto &g = g_theme.grays;
+
+    s_sprite.fillRect(0, 0, 240, 240, bg);
+    s_sprite.fillRect(0, 0, 240, 28, TFT_BLACK);
+    s_sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+    s_sprite.drawString("Captive portal", 6, 6, 2);
+    s_sprite.fillRect(0, 28, 240, 1, orange);
+
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("Network", 8, 40, 2);
+    String nm = s_captiveSsid;
+    if (nm.length() > 22) nm = nm.substring(0, 22);
+    s_sprite.setTextColor(TFT_CYAN, bg);
+    s_sprite.drawString(nm, 80, 40, 2);
+
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("On a phone connected to this WiFi:",
+                        8, 68, 1);
+
+    s_sprite.setTextColor(TFT_YELLOW, bg);
+    s_sprite.drawString("Open this URL & sign in:", 8, 84, 1);
+    std::vector<String> lines;
+    wrapLines(s_captivePortalUrl, 38, lines);
+    int yy = 100;
+    int max = 5;
+    s_sprite.setTextColor(TFT_CYAN, bg);
+    for (int i = 0; i < (int)lines.size() && i < max; i++) {
+        s_sprite.drawString(lines[i], 8, yy, 1);
+        yy += 10;
+    }
+
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("Audio resumes automatically", 8, 170, 1);
+    s_sprite.drawString("once the portal lets us through.", 8, 182, 1);
+
+    s_sprite.fillRect(0, 217, 240, 1, orange);
+    s_sprite.setTextColor(g[6], bg);
+    s_sprite.drawString("Probing every 15 s -- L: dismiss", 6, 222, 1);
+}
+
+// ---------------------------------------------------------------------------
 // "Connecting to <ssid>..." progress screen.
 // ---------------------------------------------------------------------------
 
@@ -1347,22 +1408,24 @@ static void drawWifiConnect() {
     s_sprite.setTextColor(TFT_CYAN, bg);
     s_sprite.drawString(nm, 60, 50, 2);
 
-    // Growing dots indicator.
-    int dots = (s_wifiConnectElapsedMs / 250) % 16;
+    // Growing dots indicator. Font 2 keeps the line compact enough
+    // that 24 dots fit comfortably across 240 px (font 4 was too
+    // wide and ran off-screen).
+    int dots = (s_wifiConnectElapsedMs / 250) % 24;
     String d;
     for (int i = 0; i < dots; i++) d += '.';
     s_sprite.setTextColor(TFT_YELLOW, bg);
-    s_sprite.drawString(d, 8, 90, 4);
+    s_sprite.drawString(d, 8, 84, 2);
 
     // Elapsed time.
     char buf[24];
     snprintf(buf, sizeof(buf), "%lus elapsed", (unsigned long)(s_wifiConnectElapsedMs / 1000));
     s_sprite.setTextColor(g[2], bg);
-    s_sprite.drawString(buf, 8, 150, 2);
+    s_sprite.drawString(buf, 8, 110, 2);
 
     if (s_wifiConnectMessage.length()) {
         s_sprite.setTextColor(TFT_RED, bg);
-        s_sprite.drawString(s_wifiConnectMessage, 8, 178, 2);
+        s_sprite.drawString(s_wifiConnectMessage, 8, 140, 2);
     }
 
     s_sprite.fillRect(0, 217, 240, 1, orange);
@@ -1399,6 +1462,12 @@ void displayDrawMain() {
     }
     if (s_mode == DM_STATION_DETAIL) {
         drawStationDetail();
+        blitSprite(s_sprite, 0, 0, DISPLAY_W, DISPLAY_H);
+        s_repaint = false;
+        return;
+    }
+    if (s_mode == DM_CAPTIVE) {
+        drawCaptive();
         blitSprite(s_sprite, 0, 0, DISPLAY_W, DISPLAY_H);
         s_repaint = false;
         return;

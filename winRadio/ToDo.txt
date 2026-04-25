@@ -1,13 +1,55 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-Listing of networks when trying to connect to (the page with the .....) networks the font is too large, please 
-reduce this so it fits on screen.
 
-Sometimes I want to delete a saved network so that it can be scanned as virgin please make this possible on
-the webserver interface, the web AP webpage and CLI
+== Changes made in this round (6-5-2026) ========================================
 
-Enable connecting to captive networks: you reccomended: Detect + delegate (the easy 90%-solution). When we associate to a new network, hit a known "no-content" endpoint like http://connectivitycheck.gstatic.com/generate_204. Expected response = HTTP 204 with no body; anything else (a 200 with HTML, a 30x redirect to a login URL, a DNS-poisoning hijack) means we're behind a portal. Show that on the LCD as a clear status — "Captive portal detected — open http://<portal-host>/ from a phone on the same network and complete the login. Audio will resume automatically." — and keep retrying the probe in the background. The user authenticates on a separate device they've already connected to the same SSID, and once the AP whitelists the radio's MAC (most portals are MAC-based, not user-based), the radio's traffic flows. Cheap to implement, no protocol gymnastics. About 100 lines: a netCheckCaptive() probe, a new DM_CAPTIVE_PORTAL display mode, periodic retry.
-If you can extend this solution to the CLI as well.
+Connecting-screen layout
+  1. The growing-dots indicator on the DM_WIFI_CONNECT screen was
+     drawn at LGFX font 4 (~28 px tall, very wide); 16 dots could
+     run off the right edge. Dropped to font 2 (~14 px), bumped
+     the dot count to 24, and shifted the elapsed-seconds + error
+     rows up to match. Whole connecting screen now fits cleanly
+     above the y=217 footer rule.
+
+AP provisioning portal: delete saved networks
+  2. The captive-portal setup page (AP mode, http://192.168.4.1
+     or http://on8cit-setup.local) now has a "Saved networks"
+     card listing every entry in the boot-walk order. Each row
+     has an X button that POSTs /wifi-del to forget the network
+     (with a confirm() guard). Lets the user scrub stale creds
+     before they auto-rejoin a network they no longer want.
+  3. The web /wifi page already had Delete on every row; the CLI
+     already has `wifi remove <n>`. The portal was the missing
+     leg of "all three surfaces". All three now agree.
+
+Captive-portal detection (the "easy 90%")
+  4. New net.cpp probe netCheckCaptive(). Sends a raw HTTP/1.1
+     GET to connectivitycheck.gstatic.com/generate_204 (Android's
+     check) and msftconnecttest.com/connecttest.txt as fallback.
+     We parse the status line + Location header ourselves so the
+     captive 30x is preserved (HTTPClient's auto-follow would
+     mask it). Returns ONLINE / PORTAL / OFFLINE / UNKNOWN.
+  5. New display mode DM_CAPTIVE. Shows "Captive portal" banner,
+     the SSID, the parsed login URL (wrapped to fit), and "Audio
+     resumes automatically once the portal lets us through".
+     Footer hint: "Probing every 15 s -- L: dismiss".
+  6. Probe runs:
+       - At boot, after the saved-network list joins.
+       - After every successful CLI `wifi connect`.
+       - After every on-device WiFi-picker connect.
+       - From the main loop every 15 s WHILE the captive screen
+         is up, so the unit unblocks itself once the user logs
+         in on a phone -- no manual retry needed.
+  7. New CLI commands:
+       captive            -- one-shot probe with verbose output
+                             ("Portal URL: ...", instructions).
+     `wifi connect` now also runs an automatic probe after a
+     successful join and surfaces the portal on the LCD if found.
+  8. Audio is NOT auto-started on a new join when a captive
+     portal is detected -- the radio would just bang its head on
+     a 30x. As soon as the periodic probe sees ONLINE again we
+     call audioStartLast() and dismiss the captive screen.
+
 
 == Changes made in this round (5-5-2026) ========================================
 

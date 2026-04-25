@@ -142,6 +142,7 @@ static void cmdHelp() {
     outln(F("  wifi diag              Dump WiFi driver state + last reason code"));
     outln(F("  cancel                 Exit setup-mode and resume boot flow"));
     outln(F("  reconnect              Try saved networks again"));
+    outln(F("  captive                Probe for a captive portal on this network"));
     outln();
     outln(F("  time, time show        Show synced date/time + timezone"));
     outln(F("  time set <posix-tz>    Set POSIX TZ (e.g. GMT0BST,M3.5.0/1,M10.5.0)"));
@@ -512,6 +513,17 @@ static void cmdWifiConnect(const String &rest) {
     }
 
     outln(F("Connected."));
+    // Captive-portal probe so the user finds out NOW rather than when
+    // audio fails to start. Surfaces on the LCD too if a portal is
+    // detected -- handy when the radio is across the room.
+    Serial.print(F("Captive probe: "));
+    CaptiveStatus cs = netCheckCaptive();
+    Serial.println(netCaptiveStatusName(cs));
+    if (cs == CAPTIVE_PORTAL) {
+        Serial.print(F("Portal URL: ")); outln(netCaptivePortalUrl());
+        outln(F("Open that URL on a phone on the same WiFi and sign in."));
+        displayCaptiveOpen(ssid.c_str(), netCaptivePortalUrl());
+    }
     if (!usingStored) {
         // Offer to save (or update the stored password).
         outln(F("Save this network to the saved list? [y/N]"));
@@ -628,6 +640,29 @@ static void cmdWifiClear() {
 static bool cliAbortCb() {
     cliPoll();
     return cliCheckInterrupt();
+}
+
+// Probe for a captive portal. If found, also surfaces it on the LCD
+// so the user can grab their phone and complete the login. Background
+// loop in winRadio.ino retries every 15 s while the screen is up.
+static void cmdCaptive() {
+    if (!netConnected()) { outln(F("Not associated.")); return; }
+    Serial.print(F("Probing... "));
+    CaptiveStatus cs = netCheckCaptive();
+    Serial.println(netCaptiveStatusName(cs));
+    if (cs == CAPTIVE_PORTAL) {
+        Serial.print(F("Portal URL: "));
+        outln(netCaptivePortalUrl());
+        outln(F("Open that URL on a phone connected to the same WiFi"));
+        outln(F("and complete the login. The radio will retry every 15 s."));
+        // Surface it on the display too.
+        String ssid = netCurrentSsid();
+        displayCaptiveOpen(ssid.c_str(), netCaptivePortalUrl());
+    } else if (cs == CAPTIVE_ONLINE) {
+        outln(F("Internet looks open."));
+    } else if (cs == CAPTIVE_OFFLINE) {
+        outln(F("Probe failed (no DNS / no route)."));
+    }
 }
 
 static void cmdReconnect() {
@@ -756,6 +791,7 @@ static void dispatch(const String &raw) {
         } else outln(F("Usage: time [show|set <tz>]"));
     }
     else if (eqi(cmd, "reconnect"))                                          cmdReconnect();
+    else if (eqi(cmd, "captive"))                                            cmdCaptive();
     else if (eqi(cmd, "sd"))                                                 cmdSd(arg);
     else if (eqi(cmd, "log")) {
         String sub, rest;

@@ -83,8 +83,38 @@ String renderIndex() {
            "<button type=submit>Save &amp; reconnect</button>"
            "</form>"
            "<p style='margin-top:.8em'><a href=/rescan>Rescan networks</a></p>"
-           "</div>"
-           "</body></html>");
+           "</div>");
+
+    // Saved-networks card. The boot loop walks this list; deleting
+    // an entry here lets the user "forget" a network so it shows up
+    // again as a virgin scan candidate (and so its old credentials
+    // can't keep auto-joining).
+    int sn = wifiNetworkCount();
+    if (sn > 0) {
+        p += F("<div class=card><h2>Saved networks</h2>"
+               "<p style='color:#8aa;font-size:.85em;margin:.1em 0 .6em'>"
+               "Boot tries these in order. Delete to forget one.</p>");
+        for (int i = 0; i < sn; i++) {
+            p += F("<div class=stationRow>"
+                   "<div class=station style='flex:1;cursor:default'>"
+                   "<strong>");
+            p += (i + 1); p += F(".</strong> ");
+            p += htmlEscape(wifiNetworkSsid(i));
+            const char *pp = wifiNetworkPass(i);
+            if (strlen(pp) == 0) p += F("  <small>(open)</small>");
+            else                  p += F("  <small>(saved password)</small>");
+            p += F("</div>"
+                   "<form method=POST action=/wifi-del style='display:inline' "
+                   "onsubmit=\"return confirm('Forget this network?')\">"
+                   "<input type=hidden name=idx value=");
+            p += i; p += F(">");
+            p += F("<button class=warn type=submit>&#10005;</button></form>"
+                   "</div>");
+        }
+        p += F("</div>");
+    }
+
+    p += F("</body></html>");
     return p;
 }
 
@@ -122,6 +152,17 @@ void handleSave() {
     Serial.printf("provision: saved '%s', rebooting in 2 s\r\n", ssid.c_str());
     s_rebootPending = true;
     s_rebootAtMs = millis() + 2000;
+}
+
+// Forget a saved network. Reachable from the AP-portal "Saved
+// networks" card; lets the user wipe stale credentials so the boot
+// loop won't auto-rejoin one that's no longer wanted.
+void handleWifiDel() {
+    if (!s_http.hasArg("idx")) { s_http.send(400, "text/plain", "missing idx"); return; }
+    int idx = s_http.arg("idx").toInt();
+    if (!wifiRemoveNetwork(idx)) { s_http.send(400, "text/plain", "out of range"); return; }
+    s_http.sendHeader("Location", "/");
+    s_http.send(302);
 }
 
 // AP-mode rescan. ESP32-S3 in AP mode can't scan on its own RF chain; switch
@@ -178,8 +219,9 @@ static void provisionStartInternal(bool keepSta) {
     s_http.on("/",            HTTP_GET,  handleIndex);
     s_http.on("/favicon.svg", HTTP_GET,  handleFavicon);
     s_http.on("/favicon.ico", HTTP_GET,  handleFavicon);
-    s_http.on("/save",    HTTP_POST, handleSave);
-    s_http.on("/rescan",  HTTP_GET,  handleRescan);
+    s_http.on("/save",      HTTP_POST, handleSave);
+    s_http.on("/wifi-del",  HTTP_POST, handleWifiDel);
+    s_http.on("/rescan",    HTTP_GET,  handleRescan);
     s_http.onNotFound(handleCaptive);
     s_http.begin();
 

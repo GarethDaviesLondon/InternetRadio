@@ -54,6 +54,7 @@ enum DisplayMode {
     DM_WIFI_PICKER    = 4,   // long-press Right while in sysinfo -> SSID grid
     DM_WIFI_CONNECT   = 5,   // showing "connecting to <ssid>..." progress
     DM_STATION_DETAIL = 6,   // Left double in Now Playing -> stream details
+    DM_CAPTIVE        = 7,   // detected a captive portal; show URL + retry
 };
 void        displaySetMode(DisplayMode m);
 void        displayToggleMode();          // cycles only between NowPlaying / BigClock
@@ -63,6 +64,8 @@ DisplayMode displayActiveMode();
 // Close* can restore it; Close also clears the modal state.
 void displaySysInfoOpen();
 void displayStationDetailOpen();           // Left double in NP -> details
+void displayCaptiveOpen(const char *ssid, const char *portalUrl);
+void displayCaptiveDismiss();              // back to whatever home was
 void displayPickerOpen();                 // resets cursor to current slot
 void displayPickerAdvance();              // cursor forward (wraps)
 void displayPickerRetreat();              // cursor backward (wraps)

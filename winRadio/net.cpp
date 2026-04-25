@@ -246,6 +246,106 @@ String netCurrentSsid() {
 }
 const char *netHostname() { return s_hostname; }
 
+// ---- Captive-portal probe ------------------------------------------------
+//
+// We mimic Android's "generate_204" check: hit a known URL that should
+// respond with HTTP 204 and an empty body when the internet is unblocked.
+// Anything else (a 200 with HTML, a 30x to a login page, a connection
+// reset) is taken as a captive portal. Probe timeout is short so the
+// CLI / display don't stall when the network is slow.
+//
+// We also try a Microsoft fallback in case Google's host is blocked --
+// some networks specifically block gstatic.com.
+
+static CaptiveStatus s_captiveLast    = CAPTIVE_UNKNOWN;
+static String        s_captivePortal;   // login URL parsed from a redirect
+
+const char *netCaptiveStatusName(CaptiveStatus s) {
+    switch (s) {
+        case CAPTIVE_ONLINE:  return "ONLINE";
+        case CAPTIVE_PORTAL:  return "PORTAL";
+        case CAPTIVE_OFFLINE: return "OFFLINE";
+        default:              return "UNKNOWN";
+    }
+}
+CaptiveStatus netLastCaptiveStatus() { return s_captiveLast; }
+const char   *netCaptivePortalUrl()  { return s_captivePortal.c_str(); }
+
+namespace {
+struct Probe { const char *host; const char *path; int expectStatus; };
+constexpr Probe kProbes[] = {
+    { "connectivitycheck.gstatic.com", "/generate_204",       204 },
+    { "www.msftconnecttest.com",       "/connecttest.txt",    200 },  // body "Microsoft Connect Test"
+};
+
+// Returns CAPTIVE_ONLINE / PORTAL / OFFLINE for a single probe URL.
+// Uses a raw WiFiClient so we can parse the headers ourselves --
+// HTTPClient's redirect-follow would mask the captive 30x.
+CaptiveStatus runProbe(const Probe &p, String &portalOut) {
+    WiFiClient c;
+    c.setTimeout(2);  // s
+    if (!c.connect(p.host, 80)) return CAPTIVE_OFFLINE;
+    c.printf("GET %s HTTP/1.1\r\nHost: %s\r\n"
+             "User-Agent: ON8CIT/1.0\r\nConnection: close\r\n\r\n",
+             p.path, p.host);
+
+    // Read status line.
+    uint32_t t0 = millis();
+    while (!c.available() && (millis() - t0 < 2500)) delay(10);
+    String status = c.readStringUntil('\n');
+    status.trim();
+    if (status.length() == 0) { c.stop(); return CAPTIVE_OFFLINE; }
+    int code = 0;
+    int sp = status.indexOf(' ');
+    if (sp > 0) code = status.substring(sp + 1).toInt();
+
+    // Read headers; capture Location: for a captive redirect.
+    String location;
+    while (c.connected() && (millis() - t0 < 3000)) {
+        String h = c.readStringUntil('\n');
+        h.trim();
+        if (h.length() == 0) break;
+        if (h.startsWith("Location:") || h.startsWith("location:")) {
+            location = h.substring(9); location.trim();
+        }
+    }
+    c.stop();
+
+    if (code == p.expectStatus) return CAPTIVE_ONLINE;
+    // Anything else -> portal.
+    if (location.length()) portalOut = location;
+    else                   portalOut = String("http://") + p.host + p.path;
+    return CAPTIVE_PORTAL;
+}
+} // namespace
+
+CaptiveStatus netCheckCaptive() {
+    if (WiFi.status() != WL_CONNECTED) {
+        s_captiveLast = CAPTIVE_UNKNOWN;
+        s_captivePortal = "";
+        return s_captiveLast;
+    }
+    String portal;
+    bool anyOffline = false;
+    for (const auto &p : kProbes) {
+        CaptiveStatus r = runProbe(p, portal);
+        if (r == CAPTIVE_ONLINE) {
+            s_captiveLast = CAPTIVE_ONLINE;
+            s_captivePortal = "";
+            return CAPTIVE_ONLINE;
+        }
+        if (r == CAPTIVE_PORTAL) {
+            s_captiveLast = CAPTIVE_PORTAL;
+            s_captivePortal = portal;
+            return CAPTIVE_PORTAL;
+        }
+        if (r == CAPTIVE_OFFLINE) anyOffline = true;
+    }
+    s_captiveLast   = anyOffline ? CAPTIVE_OFFLINE : CAPTIVE_PORTAL;
+    s_captivePortal = portal;
+    return s_captiveLast;
+}
+
 // ---- Scan ---------------------------------------------------------------
 
 int netScanNow() {

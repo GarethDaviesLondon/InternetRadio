@@ -193,6 +193,18 @@ void setup() {
 
     webBegin();          // main-mode web UI (uses the STA interface)
 
+    // Boot-time captive-portal probe. If the freshly-joined network
+    // is intercepting HTTP, surface the situation on the LCD instead
+    // of letting the radio sit silently with audio that won't start.
+    if (netConnected()) {
+        CaptiveStatus cs = netCheckCaptive();
+        Serial.printf("captive: boot probe -> %s\r\n", netCaptiveStatusName(cs));
+        if (cs == CAPTIVE_PORTAL) {
+            String ssid = netCurrentSsid();
+            displayCaptiveOpen(ssid.c_str(), netCaptivePortalUrl());
+        }
+    }
+
     displayRequestRepaint();
 }
 
@@ -205,6 +217,21 @@ void loop() {
         lastSlow = millis();
         powerSampleBattery();
         displayRequestRepaint();
+    }
+
+    // Captive-portal background probe. Re-checks every 15 s while a
+    // captive screen is up; if the portal lets us through, audio is
+    // resumed and the screen returns to Now Playing.
+    static unsigned long lastCaptiveProbe = 0;
+    if (displayActiveMode() == DM_CAPTIVE &&
+        millis() - lastCaptiveProbe > 15000) {
+        lastCaptiveProbe = millis();
+        if (netCheckCaptive() == CAPTIVE_ONLINE) {
+            Serial.println("captive: portal cleared; resuming audio");
+            audioStartLast();
+            displayCaptiveDismiss();
+            displayRequestRepaint();
+        }
     }
 
     // Smooth song-title scroll: ~33 Hz.
@@ -314,9 +341,16 @@ void loop() {
                         // updates in-place when SSID matches an
                         // existing slot.
                         wifiAddNetwork(String(ssid), pass);
-                        // Reconnect audio to the saved station on the
-                        // new network.
-                        audioStartLast();
+                        // Probe for a captive portal before kicking
+                        // off audio. If we're behind one, drop into
+                        // the captive screen instead of trying to
+                        // connect a stream that will just 30x.
+                        CaptiveStatus cs = netCheckCaptive();
+                        if (cs == CAPTIVE_PORTAL) {
+                            displayCaptiveOpen(ssid, netCaptivePortalUrl());
+                        } else {
+                            audioStartLast();
+                        }
                     } else {
                         displayWifiConnectFail(
                             pass.length() ? "Saved password failed."
@@ -358,6 +392,16 @@ void loop() {
                 ev = INPUT_NONE;
                 break;
             default: break;
+        }
+    }
+    // Captive-portal screen: Left short dismisses (background probe
+    // continues retrying every 15 s and will reopen if still blocked).
+    // Other inputs pass through so the user can still toggle modes.
+    else if (displayActiveMode() == DM_CAPTIVE) {
+        if (ev == INPUT_MODE_TOGGLE) {
+            displayCaptiveDismiss();
+            displayRequestRepaint();
+            ev = INPUT_NONE;
         }
     }
 

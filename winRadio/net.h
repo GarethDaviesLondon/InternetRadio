@@ -19,6 +19,26 @@ int   netRssi();
 String netCurrentSsid();    // empty when not associated
 const char *netHostname();
 
+// ---- Captive-portal detection ------------------------------------------
+//
+// Many public networks (hotels, airports, cafes) let you ASSOCIATE on
+// the WiFi layer but intercept HTTP traffic until you complete a login
+// page in a browser. The radio has no browser, so it can't do that
+// itself -- but we can at least detect the situation and tell the user
+// which device + URL to open from a phone on the same SSID. Once the
+// portal whitelists the radio's MAC (most are MAC-based), a follow-up
+// probe will see clean internet and unblock playback.
+enum CaptiveStatus {
+    CAPTIVE_UNKNOWN  = 0,   // not probed yet (or no STA association)
+    CAPTIVE_ONLINE   = 1,   // expected 204 -- internet is open
+    CAPTIVE_PORTAL   = 2,   // got HTML / 30x / wrong response
+    CAPTIVE_OFFLINE  = 3,   // probe failed entirely (no DNS, no route)
+};
+CaptiveStatus netCheckCaptive();        // synchronous; ~3 s worst case
+CaptiveStatus netLastCaptiveStatus();   // last-known result (no network IO)
+const char   *netCaptivePortalUrl();    // login URL parsed from the probe
+const char   *netCaptiveStatusName(CaptiveStatus s);
+
 // The saved-network slot that successfully connected during the last
 // netConnect() call (or the latest reconnect). -1 if no connection yet.
 // Cleared when netConnect() returns false / when we reconnect.
