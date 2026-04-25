@@ -1,5 +1,20 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
+Reorder the normal webpage homepage.
+
+Display the Time on the banner
+
+Put the station card at the top of the screen.
+
+Move the timezone to a system setting - modal pop-up triggered from a button at the bottom
+of the page in the system area. 
+
+Sensitive Pausing
+Seems that the pausing happens sometimes when lying face up (it does turn off face down, but also sometimes at other 
+points, please check if this is a sensitivity/hysterisis that can be tuned?) Once paused can be hard to restart
+Please create a "play" as well as the "pause" on the Controls card on the home page.
+
+
 
 == Changes made in this round (7-5-2026 -- captive AP fallback) ================
 
