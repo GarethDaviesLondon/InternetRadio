@@ -1,5 +1,13 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
+Listing of networks when trying to connect to (the page with the .....) networks the font is too large, please 
+reduce this so it fits on screen.
+
+Sometimes I want to delete a saved network so that it can be scanned as virgin please make this possible on
+the webserver interface, the web AP webpage and CLI
+
+Enable connecting to captive networks: you reccomended: Detect + delegate (the easy 90%-solution). When we associate to a new network, hit a known "no-content" endpoint like http://connectivitycheck.gstatic.com/generate_204. Expected response = HTTP 204 with no body; anything else (a 200 with HTML, a 30x redirect to a login URL, a DNS-poisoning hijack) means we're behind a portal. Show that on the LCD as a clear status — "Captive portal detected — open http://<portal-host>/ from a phone on the same network and complete the login. Audio will resume automatically." — and keep retrying the probe in the background. The user authenticates on a separate device they've already connected to the same SSID, and once the AP whitelists the radio's MAC (most portals are MAC-based, not user-based), the radio's traffic flows. Cheap to implement, no protocol gymnastics. About 100 lines: a netCheckCaptive() probe, a new DM_CAPTIVE_PORTAL display mode, periodic retry.
+If you can extend this solution to the CLI as well.
 
 == Changes made in this round (5-5-2026) ========================================
 
