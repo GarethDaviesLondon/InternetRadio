@@ -1,5 +1,13 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
+The IMU laying down is a bit sensitive and it works backwards: Laying face up should not stop it (it does) 
+and face down should (it doesnt).
+
+When I mistype on the CLI and use the delete key to correct what I see, what is sent to CLI processing
+must contain the edit commands as it doesn't response the same as when I type cleanly. Can we fix this?
+
+Make the webserver banner (On8CIT plus logo) navigate to the home page when pressed, and add a home button top right)
+
 
 == Changes made in this round (3-5-2026) ========================================
 

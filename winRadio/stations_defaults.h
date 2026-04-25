@@ -20,14 +20,14 @@ namespace stationsDefaults {
 struct Preset { const char *name; const char *url; };
 
 inline constexpr Preset kPresets[] = {
-    { "SomaFM Groove Salad", "http://ice1.somafm.com/groovesalad-128-mp3"        },
-    { "Disco Diamond",       "https://discodiamond.radioca.st/autodj"           },
-    { "Radio King 175279",   "https://listen.radioking.com/radio/175279/stream/216784" },
+    {"Mix Megapol", "http://tx-bauerse.sharp-stream.com/http_live.php?ua=WEB&i=mixmegapol_instream_se_mp3"},
     { "Radio Caroline",      "http://sc6.radiocaroline.net:8040/stream"         },
-    { "Raute Musik Club",    "https://club-high.rautemusik.fm/;"                },
-    { "WGMC Jazz",           "http://greece-media.monroe.edu/wgmc.mp3"          },
-    { "Radio Banovina",      "https://audio.radio-banovina.hr:9998/;"           },
-    { "Radio Paradise",      "http://stream.radioparadise.com/mp3-128"          },
+    {"BBC World" ,"https://stream.live.vc.bbcmedia.co.uk/bbc_world_service"},
+    {"BSJ","http://64.95.243.43:8002/stream"},
+    {"Swiss Jazz", "http://stream.srg-ssr.ch/m/rsj/mp3_128" },
+    {"Heart 80s", "https://media-ssl.musicradio.com/Heart80sMP3"},
+    {"Gold","https://media-ssl.musicradio.com/GoldMP3"},
+    {"Nostaligi","https://media-ssl.musicradio.com/NostalgiaMP3"}
 };
 
 inline constexpr int kPresetCount = sizeof(kPresets) / sizeof(kPresets[0]);
