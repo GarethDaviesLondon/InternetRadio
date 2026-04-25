@@ -18,6 +18,18 @@ const char *on8citPageCss() {
         "header h1{margin:0;font-size:1.25em;font-weight:700;letter-spacing:.06em}"
         "header h1 .yel{color:#FFD400}"
         "header h1 .cya{color:#5ae3ff}"
+        // Banner is a link to home; use the surrounding text colour
+        // so it doesn't look like a "blue underlined link".
+        "header a.brand{display:flex;align-items:center;gap:.7em;flex:1;"
+        "color:inherit;text-decoration:none;cursor:pointer}"
+        "header a.brand:hover h1 .yel{filter:brightness(1.15)}"
+        // Top-right Home button. Compact pill, same accent colour as
+        // the brand text so it reads as a primary nav control.
+        "header a.homeBtn{flex:0 0 auto;display:inline-flex;"
+        "align-items:center;justify-content:center;width:36px;height:36px;"
+        "border:1px solid #2a2f3c;border-radius:8px;background:#181b24;"
+        "color:#FFD400;font-size:1.2em;text-decoration:none;cursor:pointer}"
+        "header a.homeBtn:hover{background:#1f2330;border-color:#FFD400}"
         ".card{background:#141720;border:1px solid #242832;border-radius:8px;"
         "padding:.9em 1.1em;margin:.6em 0}"
         ".card h2{margin:0 0 .5em;font-size:.95em;color:#FFD400;"

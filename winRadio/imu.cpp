@@ -199,19 +199,28 @@ void imuLoop() {
     s_emaY += alpha * (gy - s_emaY);
     s_emaZ += alpha * (gz - s_emaZ);
 
-    // Classify current orientation. Require |Z| > 0.6 g to lock in
-    // face-up/down; everything else is "side" (hand-held, tilted).
+    // Classify current orientation. Require |Z| > 0.75 g to lock in
+    // face-up/down (was 0.6 g; user reported the unit was too touchy on
+    // mild tilts); everything else is "side" (hand-held, tilted).
+    //
+    // Polarity note: on the Waveshare board the accelerometer +Z axis
+    // points OUT THE BACK of the case, not out the screen. So when the
+    // unit lies screen-up the gravity vector reads NEGATIVE on Z, and
+    // screen-down reads POSITIVE. This caused the original "face down
+    // pause" gesture to fire backwards.
     OrientationState cur;
-    if      (s_emaZ >  0.6f) cur = ORI_FACE_UP;
-    else if (s_emaZ < -0.6f) cur = ORI_FACE_DOWN;
-    else                     cur = ORI_SIDE;
+    if      (s_emaZ < -0.75f) cur = ORI_FACE_UP;
+    else if (s_emaZ >  0.75f) cur = ORI_FACE_DOWN;
+    else                      cur = ORI_SIDE;
 
-    // Debounce: an orientation must hold for 300 ms before it's accepted.
+    // Debounce: an orientation must hold for 500 ms before it's
+    // accepted (was 300 ms; reduces the chance that a moment of tilt
+    // while picking the unit up flips the orientation).
     if (cur != s_pendingOri) {
         s_pendingOri   = cur;
         s_pendingSince = now;
     }
-    if (cur != s_ori && (now - s_pendingSince) > 300) {
+    if (cur != s_ori && (now - s_pendingSince) > 500) {
         OrientationState was = s_ori;
         s_ori = cur;
         if (cur == ORI_FACE_DOWN && was != ORI_FACE_DOWN) s_evFaceDown = true;

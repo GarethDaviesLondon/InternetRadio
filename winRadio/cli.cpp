@@ -45,9 +45,23 @@ static void prompt() { Serial.print(PROMPT); }
 static String readLineBlocking(const char *label, bool mask) {
     Serial.print(label);
     String line; bool lastCr = false;
+    int escState = 0;   // 0=normal, 1=saw ESC, 2=inside CSI (see cliPoll)
     while (true) {
         if (Serial.available()) {
             char c = Serial.read();
+
+            // Skip multi-byte escape sequences (Delete, arrows, etc.).
+            if (escState == 1) {
+                if (c == '[' || c == 'O') escState = 2;
+                else                       escState = 0;
+                continue;
+            }
+            if (escState == 2) {
+                if ((unsigned char)c >= 0x40 && (unsigned char)c <= 0x7E) escState = 0;
+                continue;
+            }
+            if (c == 0x1B) { escState = 1; continue; }
+
             if (c == '\n' && lastCr) { lastCr = false; continue; }
             lastCr = (c == '\r');
             if (c == '\r' || c == '\n') { crlf(); return line; }
@@ -813,9 +827,33 @@ void cliWaitForNewNetwork(void (*tickCb)()) {
 }
 
 void cliPoll() {
+    // Tiny ANSI / VT escape skipper. PuTTY (and most terminals) send
+    // multi-byte sequences for Delete, arrow keys, F-keys, etc. The
+    // first byte is ESC (0x1B), normally followed by '[' (CSI). The
+    // sequence ends at a "final byte" in the range 0x40..0x7E.
+    // Without this filter the printable bytes inside the sequence
+    // (e.g. '[', '3', '~' for Delete) leak into the command buffer
+    // and mangle the typed line.
+    static int s_escState = 0;   // 0=normal, 1=saw ESC, 2=inside CSI
+
     while (Serial.available()) {
         displayNoteActivity();  // wake the panel on any keystroke
         char c = Serial.read();
+
+        // Escape-sequence skip path.
+        if (s_escState == 1) {
+            // Right after ESC: '[' enters CSI; anything else cancels.
+            if (c == '[' || c == 'O') s_escState = 2;
+            else                       s_escState = 0;
+            continue;
+        }
+        if (s_escState == 2) {
+            // Final byte of a CSI sequence -- end the skip.
+            if ((unsigned char)c >= 0x40 && (unsigned char)c <= 0x7E) s_escState = 0;
+            continue;
+        }
+        if (c == 0x1B) { s_escState = 1; continue; }
+
         if (c == 3) {                   // Ctrl-C: latch interrupt flag
             g_ctrlC = true;
             Serial.print("^C\r\n");

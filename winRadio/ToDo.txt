@@ -1,15 +1,36 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-The IMU laying down is a bit sensitive and it works backwards: Laying face up should not stop it (it does) 
-and face down should (it doesnt). Picking it back up should restart, it doesnt.
 
-When I mistype on the CLI and use the delete key to correct what I see, what is sent to CLI processing
-must contain the edit commands as it doesn't response the same as when I type cleanly. Can we fix this?
+== Changes made in this round (4-5-2026) ========================================
 
-Make the webserver banner (On8CIT plus logo) navigate to the home page when pressed, and add a home button top right)
+Polish round
+-------------
+  1. IMU orientation: the +Z axis on the Waveshare board points OUT
+     THE BACK of the case, not out the screen. The original face-down
+     pause/resume test was written for the screen-up convention so it
+     fired backwards. Swapped the comparisons:
+       - face-up   = Az < -0.75 g  (was: > +0.6 g)
+       - face-down = Az > +0.75 g  (was: < -0.6 g)
+     Threshold raised from 0.6 g to 0.75 g and the debounce window
+     from 300 ms to 500 ms so a moment of tilt while picking up the
+     unit doesn't accidentally toggle the orientation.
+
+  2. CLI escape-sequence filter. PuTTY's Delete key sends the multi-
+     byte CSI sequence ESC [ 3 ~. Without filtering, the printable
+     bytes ([, 3, ~) leaked into the typed line and broke every
+     command after a Delete keystroke. Both cliPoll() and the
+     blocking-line readLineBlocking() now skip CSI sequences (any
+     bytes between ESC [ ... and the final byte 0x40-0x7E). Arrow
+     keys, Home, End, F-keys, etc. are all silently swallowed by
+     the same filter.
+
+  3. Web header: the ON8CIT + WebRadio banner is now a clickable
+     link to / (so any page in the UI can return home with one tap
+     on the brand). A small house-icon Home button sits top-right
+     of the header on every page, matching the colour of the brand
+     wordmark.
 
 
-== Changes made in this round (3-5-2026) ========================================
 
 WiFi: on-device picker
 -----------------------

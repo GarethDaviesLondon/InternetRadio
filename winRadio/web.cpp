@@ -62,9 +62,12 @@ String pageHead(const char *title) {
     p += F("</title><style>");
     p += on8citPageCss();
     p += F("</style></head><body>"
-           "<header>");
+           "<header>"
+           "<a class=brand href=/ title='Home'>");
     p += on8citLogoSvg();
     p += F("<h1><span class=yel>ON8CIT</span> <span class=cya>WebRadio</span></h1>"
+           "</a>"
+           "<a class=homeBtn href=/ title='Home' aria-label='Home'>&#127968;</a>"
            "</header>");
     return p;
 }
