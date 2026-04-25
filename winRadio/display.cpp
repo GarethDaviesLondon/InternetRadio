@@ -381,9 +381,14 @@ void displayShowCompactConnect(const char *ssid, int slot, int total,
     s_gfx->fillScreen(RGB565_BLACK);
     drawBrandingBanner(0, /*large=*/false);
 
+    // The branding banner leaves textSize at 2 (12 px chars). Reset to
+    // size 1 (6 px chars, 8 px tall) so the SSID list fits within
+    // 240 px width and the rows don't overlap each other vertically.
+    s_gfx->setTextSize(1);
+
     // Scan list in the middle third.
     int n = netScanCount();
-    const int rowH = 14, top = 32, maxRows = (180 - top) / rowH;
+    const int rowH = 12, top = 30, maxRows = (180 - top) / rowH;
     if (n == 0) {
         s_gfx->setTextColor(RGB565_WHITE);
         s_gfx->setCursor(2, top);
@@ -399,9 +404,11 @@ void displayShowCompactConnect(const char *ssid, int slot, int total,
             s_gfx->setCursor(22, y + 2);
             s_gfx->printf("ch%-2u", r->channel);
             s_gfx->setTextColor(RGB565_WHITE);
-            s_gfx->setCursor(52, y + 2);
+            s_gfx->setCursor(54, y + 2);
+            // Width budget at size 1: 240 - 54 = 186 px = 31 chars.
+            // Truncate at 30 with an ellipsis so we stay inside 240 px.
             String s = r->ssid;
-            if (s.length() > 28) s = s.substring(0, 28);
+            if (s.length() > 30) s = s.substring(0, 27) + "...";
             s_gfx->print(s);
         }
         if (n > maxRows) {
