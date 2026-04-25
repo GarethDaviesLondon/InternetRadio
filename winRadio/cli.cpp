@@ -533,6 +533,17 @@ static void cmdWifiConnect(const String &rest) {
             outln(F("Saved."));
         }
     }
+    // Promote: the user explicitly chose this network NOW, so it
+    // should win on the next boot. Find its slot and bump to top.
+    for (int i = 0; i < wifiNetworkCount(); i++) {
+        if (ssid.equalsIgnoreCase(wifiNetworkSsid(i))) {
+            if (i != 0) {
+                wifiPromoteNetwork(i);
+                outln(F("Promoted to top of the boot-walk order."));
+            }
+            break;
+        }
+    }
 }
 
 static void cmdWifiList() {

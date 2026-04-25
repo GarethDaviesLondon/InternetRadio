@@ -18,3 +18,10 @@ void provisionPoll();             // drive DNS + web server; call from any wait 
 void provisionStop();
 bool provisionActive();
 String provisionApIp();           // "" if AP not running
+
+// Set when the user clicked "Abort current attempt" on the portal
+// while the boot-time connect loop was still running. The loop's
+// abort callback should poll this and return true so netConnect()
+// breaks out and re-enters setup mode.
+bool   provisionAbortRequested();
+void   provisionClearAbort();

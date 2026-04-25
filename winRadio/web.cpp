@@ -1079,7 +1079,10 @@ void handleWifiConnect() {
     String ssid = wifiNetworkSsid(idx);
     String pass = wifiNetworkPass(idx);
     bool ok = netConnectAdhoc(ssid, pass, 12000);
-    if (ok) audioStartLast();
+    if (ok) {
+        wifiPromoteNetwork(idx);   // user-chosen -> top of boot list
+        audioStartLast();
+    }
     s_http.sendHeader("Location", "/wifi");
     s_http.send(302);
 }
@@ -1093,6 +1096,12 @@ void handleWifiConnectAdhoc() {
     bool ok = netConnectAdhoc(ssid, pass, 12000);
     if (ok) {
         wifiAddNetwork(ssid, pass);
+        // Promote: just-connected SSID should win on next boot.
+        for (int i = 0; i < wifiNetworkCount(); i++) {
+            if (ssid.equalsIgnoreCase(wifiNetworkSsid(i))) {
+                wifiPromoteNetwork(i); break;
+            }
+        }
         audioStartLast();
     }
     s_http.sendHeader("Location", "/wifi");

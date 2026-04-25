@@ -1,12 +1,44 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-I try to connect to a captive portal, it didn't work. I then tried to connect to my phone Hotspot 
-When I select by going to the OLED page from right button long presses and select using middle
-it doesn't connect sucessfully. When I reboot I try again to connect to the captive network. 
-Can we make the selected one in this phase the default connection attempt. 
 
-While trying to connect please keep the AP active with the ability to use it to interrupt and
-redirect the connection request (and reorder the defaul after boot)
+== Changes made in this round (7-5-2026) ========================================
+
+User-chosen network = boot default
+  1. New backend helper wifiPromoteNetwork(idx) that moves a saved
+     entry to position 0 (so it's the first one tried at boot).
+  2. Every "the user explicitly chose this network NOW" path now
+     promotes the chosen SSID to the top of the saved list:
+       - On-device WiFi picker (DM_WIFI_PICKER) on success.
+       - Web /api/wifi-connect (saved-list connect) on success.
+       - Web /api/wifi-connect-adhoc (visible-network connect) on
+         success.
+       - CLI `wifi connect <ssid>` on success (logs "Promoted to
+         top of the boot-walk order.").
+       - AP provisioning portal /save (the SSID just added is
+         what they want to join; reboot will pick it up first).
+     This fixes the reported regression where the radio kept
+     re-joining the failed captive-portal network on reboot even
+     after the user had successfully picked a phone hotspot.
+
+AP portal stays useful during boot connect attempts
+  3. The background AP portal already runs alongside netConnect()
+     (provisionStartBackground), but the portal page only had Save
+     and Delete -- no way to reorder or to abort an in-progress
+     connect. Added:
+       - Up/Down arrow buttons on every saved-network row.
+       - "Abort current connect attempt" button that latches a
+         flag picked up by the boot-loop's abort callback.
+     POST endpoints: /wifi-up, /wifi-down, /abort.
+  4. New net-side accessors provisionAbortRequested() /
+     provisionClearAbort(); netAbortOnRightButton() polls them so
+     a portal-abort breaks out of netConnect() the same way a
+     V-button hold does today.
+  5. The boot loop distinguishes "abort via portal" from "list
+     exhausted". Portal-abort: keep the AP up, show "Aborted.
+     Retrying saved networks..." for 600 ms, and re-enter the
+     loop (the user has already reordered or added an entry, so
+     the next iteration tries the now-top SSID). List-exhausted:
+     unchanged, falls into setup mode.
 
 == Changes made in this round (6-5-2026) ========================================
 

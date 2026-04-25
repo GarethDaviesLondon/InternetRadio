@@ -36,6 +36,10 @@ const char *wifiNetworkPass(int idx);
 bool        wifiAddNetwork(const String &ssid, const String &pass);
 bool        wifiRemoveNetwork(int idx);
 bool        wifiMoveNetwork(int from, int to);
+// Move the saved entry at idx to position 0 so it's tried first on
+// the next boot. Used after a user-driven "connect now" succeeds:
+// the radio learns from "this is what the user actually chose".
+bool        wifiPromoteNetwork(int idx);
 void        wifiClearAllNetworks();
 
 // ---- SD card -------------------------------------------------------------

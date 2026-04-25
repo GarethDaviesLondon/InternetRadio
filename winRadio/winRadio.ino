@@ -58,11 +58,25 @@ static void bootTick() {
     }
 }
 
-// Abort callback passed to netConnect(): the right button (V) triggers
-// WiFi-setup mode mid-attempt. bootTick is called here too so sleep /
-// reboot / dim keep working while we're trying each saved network.
+// Sticky flag: latched by the portal abort callback, cleared once the
+// boot loop reads it. Lets the post-netConnect code distinguish
+// "user clicked abort on the portal -> just retry the saved list"
+// from "we genuinely walked everything and need setup mode".
+static bool s_abortViaPortal = false;
+
+// Abort callback passed to netConnect(): triggers when EITHER the
+// right button (V) is held OR the user clicked "Abort current
+// attempt" on the background AP portal. bootTick is called here too
+// so sleep / reboot / dim / portal HTTP keep working while we're
+// trying each saved network.
 static bool netAbortOnRightButton() {
     bootTick();
+    if (provisionAbortRequested()) {
+        provisionClearAbort();
+        s_abortViaPortal = true;
+        Serial.println("boot: abort requested via AP portal");
+        return true;
+    }
     return inputRightHeld();
 }
 
@@ -168,6 +182,17 @@ void setup() {
     // naturally resumes with the newly-saved network in the list.
     provisionStartBackground();
     while (!netConnect(netAbortOnRightButton, netProgressUi)) {
+        // Distinguish "user clicked abort on portal" from "exhausted
+        // the list". The portal-abort case keeps the AP up and just
+        // retries netConnect (the user has already reordered or added
+        // an entry); the exhausted case drops into setup mode where
+        // they can fix things.
+        if (s_abortViaPortal) {
+            s_abortViaPortal = false;
+            displayShowMessage("Aborted.", "Retrying", "saved networks...");
+            delay(600);
+            continue;
+        }
         displayShowMessage("No network", "connected.",
                            "Entering setup...");
         delay(800);
@@ -341,6 +366,16 @@ void loop() {
                         // updates in-place when SSID matches an
                         // existing slot.
                         wifiAddNetwork(String(ssid), pass);
+                        // Promote to slot 0: the user explicitly
+                        // picked this network NOW, so the next boot
+                        // should try it first. Find the slot the
+                        // SSID landed in and bump it to the top.
+                        for (int i = 0; i < wifiNetworkCount(); i++) {
+                            if (String(ssid).equalsIgnoreCase(wifiNetworkSsid(i))) {
+                                wifiPromoteNetwork(i);
+                                break;
+                            }
+                        }
                         // Probe for a captive portal before kicking
                         // off audio. If we're behind one, drop into
                         // the captive screen instead of trying to

@@ -176,6 +176,10 @@ bool wifiMoveNetwork(int from, int to) {
     return true;
 }
 
+bool wifiPromoteNetwork(int idx) {
+    return wifiMoveNetwork(idx, 0);
+}
+
 void wifiClearAllNetworks() {
     for (int i = 0; i < kWifiMaxNetworks; i++) {
         g_nets[i].ssid = "";

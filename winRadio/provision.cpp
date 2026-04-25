@@ -85,15 +85,16 @@ String renderIndex() {
            "<p style='margin-top:.8em'><a href=/rescan>Rescan networks</a></p>"
            "</div>");
 
-    // Saved-networks card. The boot loop walks this list; deleting
-    // an entry here lets the user "forget" a network so it shows up
-    // again as a virgin scan candidate (and so its old credentials
-    // can't keep auto-joining).
+    // Saved-networks card. The boot loop walks this list; the user
+    // can reorder (the topmost is tried first), forget a stale entry,
+    // or hit "Abort current attempt" to break out of an in-progress
+    // connect when the AP they really want is further down.
     int sn = wifiNetworkCount();
     if (sn > 0) {
         p += F("<div class=card><h2>Saved networks</h2>"
                "<p style='color:#8aa;font-size:.85em;margin:.1em 0 .6em'>"
-               "Boot tries these in order. Delete to forget one.</p>");
+               "Boot tries these in order (top first). Use the arrows "
+               "to reorder, X to forget.</p>");
         for (int i = 0; i < sn; i++) {
             p += F("<div class=stationRow>"
                    "<div class=station style='flex:1;cursor:default'>"
@@ -103,15 +104,35 @@ String renderIndex() {
             const char *pp = wifiNetworkPass(i);
             if (strlen(pp) == 0) p += F("  <small>(open)</small>");
             else                  p += F("  <small>(saved password)</small>");
-            p += F("</div>"
-                   "<form method=POST action=/wifi-del style='display:inline' "
+            p += F("</div>");
+            // Up button: disabled at index 0.
+            p += F("<form method=POST action=/wifi-up style='display:inline'>"
+                   "<input type=hidden name=idx value=");
+            p += i; p += F(">");
+            p += F("<button class=infoBtn type=submit");
+            if (i == 0) p += F(" disabled");
+            p += F(" title='Move up'>&#9650;</button></form>");
+            // Down button: disabled at last index.
+            p += F("<form method=POST action=/wifi-down style='display:inline'>"
+                   "<input type=hidden name=idx value=");
+            p += i; p += F(">");
+            p += F("<button class=infoBtn type=submit");
+            if (i == sn - 1) p += F(" disabled");
+            p += F(" title='Move down'>&#9660;</button></form>");
+            p += F("<form method=POST action=/wifi-del style='display:inline' "
                    "onsubmit=\"return confirm('Forget this network?')\">"
                    "<input type=hidden name=idx value=");
             p += i; p += F(">");
             p += F("<button class=warn type=submit>&#10005;</button></form>"
                    "</div>");
         }
-        p += F("</div>");
+        // Abort button: only meaningful while a boot connect loop is
+        // running, but harmless otherwise (the flag just stays cleared).
+        p += F("<p style='margin-top:.7em'>"
+               "<form method=POST action=/abort style='display:inline'>"
+               "<button class=warn type=submit>&#9888; Abort current "
+               "connect attempt</button></form>"
+               "</p></div>");
     }
 
     p += F("</body></html>");
@@ -125,6 +146,12 @@ void handleIndex() { s_http.send(200, "text/html", renderIndex()); }
 bool s_rebootPending = false;
 uint32_t s_rebootAtMs = 0;
 
+// Set by /abort. The boot-time connect loop polls
+// provisionAbortRequested() via its abortCb so the loop can break
+// out and the user lands back in setup mode where they can pick a
+// different network or reorder the list.
+bool s_abortRequested = false;
+
 void handleSave() {
     String ssid = s_http.arg("ssid"); ssid.trim();
     String pass = s_http.arg("pass");
@@ -132,6 +159,14 @@ void handleSave() {
     if (!wifiAddNetwork(ssid, pass)) {
         s_http.send(500, "text/plain",
             "Save failed (list full? remove one first)."); return;
+    }
+    // Promote: the SSID the user just typed in is what they want to
+    // join NOW, so it should win on the next boot too.
+    for (int i = 0; i < wifiNetworkCount(); i++) {
+        if (ssid.equalsIgnoreCase(wifiNetworkSsid(i))) {
+            wifiPromoteNetwork(i);
+            break;
+        }
     }
     String ok;
     ok += F("<!doctype html><html><head><meta charset=utf-8>"
@@ -163,6 +198,47 @@ void handleWifiDel() {
     if (!wifiRemoveNetwork(idx)) { s_http.send(400, "text/plain", "out of range"); return; }
     s_http.sendHeader("Location", "/");
     s_http.send(302);
+}
+
+// Reorder a saved network up one slot. (idx -> idx-1)
+void handleWifiUp() {
+    if (!s_http.hasArg("idx")) { s_http.send(400, "text/plain", "missing idx"); return; }
+    int idx = s_http.arg("idx").toInt();
+    if (idx > 0) wifiMoveNetwork(idx, idx - 1);
+    s_http.sendHeader("Location", "/");
+    s_http.send(302);
+}
+
+// Reorder a saved network down one slot. (idx -> idx+1)
+void handleWifiDown() {
+    if (!s_http.hasArg("idx")) { s_http.send(400, "text/plain", "missing idx"); return; }
+    int idx = s_http.arg("idx").toInt();
+    if (idx < wifiNetworkCount() - 1) wifiMoveNetwork(idx, idx + 1);
+    s_http.sendHeader("Location", "/");
+    s_http.send(302);
+}
+
+// Latch the abort flag. The boot-time netConnect() loop's
+// abortCb (netAbortOnRightButton in winRadio.ino) polls
+// provisionAbortRequested() and breaks out, dropping the user
+// back into setup mode where they can pick a different network
+// or reorder the list and try again.
+void handleAbort() {
+    s_abortRequested = true;
+    String ok;
+    ok += F("<!doctype html><html><head><meta charset=utf-8>"
+           "<meta http-equiv='refresh' content='2;url=/'>"
+           "<title>ON8CIT WebRadio &mdash; aborting</title>"
+           "<style>");
+    ok += on8citPageCss();
+    ok += F("</style></head><body><header>");
+    ok += on8citLogoSvg();
+    ok += F("<h1><span class=yel>ON8CIT</span> <span class=cya>WebRadio</span></h1></header>"
+           "<div class=card><h2>Abort requested</h2>"
+           "<p>The boot connect attempt will stop on the next poll. "
+           "Setup mode will resume so you can pick a different network "
+           "or reorder the saved list.</p></div></body></html>");
+    s_http.send(200, "text/html", ok);
 }
 
 // AP-mode rescan. ESP32-S3 in AP mode can't scan on its own RF chain; switch
@@ -221,6 +297,9 @@ static void provisionStartInternal(bool keepSta) {
     s_http.on("/favicon.ico", HTTP_GET,  handleFavicon);
     s_http.on("/save",      HTTP_POST, handleSave);
     s_http.on("/wifi-del",  HTTP_POST, handleWifiDel);
+    s_http.on("/wifi-up",   HTTP_POST, handleWifiUp);
+    s_http.on("/wifi-down", HTTP_POST, handleWifiDown);
+    s_http.on("/abort",     HTTP_POST, handleAbort);
     s_http.on("/rescan",    HTTP_GET,  handleRescan);
     s_http.onNotFound(handleCaptive);
     s_http.begin();
@@ -259,3 +338,6 @@ void provisionStop() {
 
 bool   provisionActive() { return s_active; }
 String provisionApIp()   { return s_active ? WiFi.softAPIP().toString() : String(); }
+
+bool   provisionAbortRequested() { return s_abortRequested; }
+void   provisionClearAbort()     { s_abortRequested = false; }
