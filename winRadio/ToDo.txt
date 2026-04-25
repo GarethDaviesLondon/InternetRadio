@@ -1,5 +1,35 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
+Create a webpage on the server to manage wifi networks.
+Add, delete, reorder the sequence in which they are scanned.
+Do the order change by drag and drop in a list of wifi. 
+Don't store wifi networks that were seen but never connected to. Only store ones where
+we have had credentials that work (some networks are open, so not all have passwords).
+Do list ones that have been recently been scanned and likely present, but these are different
+from ones that are stored for later use.
+
+The radio station list, please make it possible to re-order the list. Drag and drop the
+item-cards on the web interface. When deleting, adding etc don't reset the page to the top
+but keep the vertical scroll position as was.
+
+When navigating the station list on the OLED display, during that state make short presees
+on the right button advance through the list, the middle button reverse through the list
+(when sequential, if you just miss the one you want with an extra press it's painful to 
+have to go through all of them to loop back). Make selection of the station a double or long 
+press on either middle or right button. THen revert back to now playing with the buttons performing
+as normal.
+
+in Now playing mode - double press on the left should move to a detail screen about the station
+including it's URL, home page 
+
+Make the morse sequence at start up only say "CIT" 
+
+IMU orientation is now correct - but only wakes when it is lying on it's back. I would like to wake
+it if I is also stood on one of it's edges. So face down = pause. Movement to (say) past 45 degrees on any edge,
+un-pause.
+
+
+
 
 == Changes made in this round (4-5-2026) ========================================
 

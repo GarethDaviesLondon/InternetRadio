@@ -26,8 +26,7 @@ inline constexpr Preset kPresets[] = {
     {"BSJ","http://64.95.243.43:8002/stream"},
     {"Swiss Jazz", "http://stream.srg-ssr.ch/m/rsj/mp3_128" },
     {"Heart 80s", "https://media-ssl.musicradio.com/Heart80sMP3"},
-    {"Gold","https://media-ssl.musicradio.com/GoldMP3"},
-    {"Nostaligi","https://media-ssl.musicradio.com/NostalgiaMP3"}
+    {"Gold","https://media-ssl.musicradio.com/GoldMP3"}
 };
 
 inline constexpr int kPresetCount = sizeof(kPresets) / sizeof(kPresets[0]);
