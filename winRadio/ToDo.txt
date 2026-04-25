@@ -1,20 +1,42 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-Reorder the normal webpage homepage.
 
-Display the Time on the banner
+== Changes made in this round (8-5-2026) ========================================
 
-Put the station card at the top of the screen.
+Sensitivity + control polish
+  1. IMU face-down pause was firing accidentally when the unit was
+     just lying face-up or being handled. Tuned the classifier to
+     be much more selective about entering pause, much more
+     willing to leave it:
+       enter face-down: Az > 0.92 g held 1000 ms (was 0.85 / 500)
+       leave face-down: Az < 0.55 g held  200 ms (was 0.70 / 300)
+     The user has to deliberately set the unit screen-down and
+     leave it for a full second before audio pauses; any flick of
+     motion past ~57 deg off horizontal resumes immediately.
+  2. Controls card now has TWO explicit buttons: Play and Pause,
+     each disabled when not applicable (so the meaning is
+     unambiguous regardless of state). Both POST /api/play.
+     Picks up the slack when the IMU resume is laggy or the user
+     just wants a clean web button.
 
-Move the timezone to a system setting - modal pop-up triggered from a button at the bottom
-of the page in the system area. 
-
-Sensitive Pausing
-Seems that the pausing happens sometimes when lying face up (it does turn off face down, but also sometimes at other 
-points, please check if this is a sensitivity/hysterisis that can be tuned?) Once paused can be hard to restart
-Please create a "play" as well as the "pause" on the Controls card on the home page.
-
-
+Home page redesign
+  3. Stations card moved to the very top of the home page (it's
+     the most-used control on a typical visit).
+  4. Banner now shows the live time. Server renders the initial
+     HH:MM:SS into a <span class=bannerClock>; a tiny script in
+     pageFoot() ticks it once a second using the local browser
+     clock so the display stays current without polling.
+  5. Old dedicated Clock card is gone -- date is no longer
+     surfaced (was rarely used; banner shows time which is what
+     matters).
+  6. Timezone control moved out of the Clock card into a modal
+     pop-up triggered by a "Set timezone..." button in the System
+     card. Same POST /api/timezone endpoint; preset dropdown +
+     POSIX TZ free-text field unchanged.
+  7. Modal CSS extended via [id$=Modal] / [id$=ModalBg] attribute
+     selectors so all modals (station-edit, wifi-adhoc-connect,
+     set-timezone, ...) share positioning + style without
+     individual rules.
 
 == Changes made in this round (7-5-2026 -- captive AP fallback) ================
 

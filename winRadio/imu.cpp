@@ -211,13 +211,17 @@ void imuLoop() {
     // points OUT THE BACK of the case (not the screen), so screen-down
     // reads gravity POSITIVE on Z.
     //
-    // Thresholds:
-    //   enter face-down: Az > 0.85 g sustained 500 ms (deep, stable)
-    //   leave face-down: Az < 0.70 g sustained 300 ms (~45 deg tilt)
-    constexpr float kEnterFaceDownG = 0.85f;
-    constexpr float kLeaveFaceDownG = 0.70f;
-    constexpr uint32_t kEnterDebounceMs = 500;
-    constexpr uint32_t kLeaveDebounceMs = 300;
+    // Thresholds: heavily asymmetric so accidental "wait, why did it
+    // pause?" events are rare and resume is snappy.
+    //   enter face-down: Az > 0.92 g sustained 1000 ms (very nearly
+    //     flat, sustained -- a brief tilt past +Z while picking the
+    //     unit up isn't enough)
+    //   leave face-down: Az < 0.55 g sustained 200 ms (just over
+    //     ~57 deg off flat -- effectively any deliberate motion)
+    constexpr float kEnterFaceDownG = 0.92f;
+    constexpr float kLeaveFaceDownG = 0.55f;
+    constexpr uint32_t kEnterDebounceMs = 1000;
+    constexpr uint32_t kLeaveDebounceMs = 200;
 
     OrientationState cur;
     if (s_ori == ORI_FACE_DOWN) {

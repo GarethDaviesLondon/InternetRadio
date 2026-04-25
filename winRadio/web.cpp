@@ -67,6 +67,16 @@ String pageHead(const char *title) {
     p += on8citLogoSvg();
     p += F("<h1><span class=yel>ON8CIT</span> <span class=cya>WebRadio</span></h1>"
            "</a>"
+           // Live banner clock. Server-renders the current time as a
+           // seed; client-side JS at the bottom of every page ticks
+           // it once a second using the local browser clock.
+           "<span class=bannerClock id=bClock>");
+    {
+        char tbuf[16];
+        clockFormatTime(tbuf, sizeof(tbuf));
+        p += (tbuf[0] ? String(tbuf) : String("--:--:--"));
+    }
+    p += F("</span>"
            "<a class=homeBtn href=/ title='Home' aria-label='Home'>&#127968;</a>"
            "</header>");
     return p;
@@ -78,7 +88,25 @@ String pageFoot() {
     p += FIRMWARE_NAME; p += F(" "); p += FIRMWARE_VERSION;
     p += F(" &mdash; <a href=/>home</a> &middot; <a href=/discover>discover</a>"
            " &middot; <a href=/wifi>wifi</a>"
-           " &middot; <a href=/api-docs>API</a></footer></body></html>");
+           " &middot; <a href=/api-docs>API</a></footer>"
+           // Banner clock: parse the server-rendered HH:MM:SS,
+           // increment locally every second so the display stays
+           // current without a page refresh.
+           "<script>(function(){"
+           "const el=document.getElementById('bClock');"
+           "if(!el)return;"
+           "const m=(el.textContent||'').match(/(\\d+):(\\d+):(\\d+)/);"
+           "if(!m)return;"
+           "let h=+m[1],mi=+m[2],s=+m[3];"
+           "setInterval(()=>{"
+           " s++;if(s>=60){s=0;mi++;}"
+           " if(mi>=60){mi=0;h++;}"
+           " if(h>=24)h=0;"
+           " el.textContent=String(h).padStart(2,'0')+':'+"
+           "  String(mi).padStart(2,'0')+':'+String(s).padStart(2,'0');"
+           "},1000);"
+           "})();</script>"
+           "</body></html>");
     return p;
 }
 
@@ -139,43 +167,48 @@ void handleIndex() {
     String p = pageHead("ON8CIT WebRadio");
     int cur = audioCurrentStation();
     int n   = stationsCount();
+    // (Banner now shows the live clock; the dedicated Clock card is
+    // gone. Timezone control moved to the System card modal.)
 
-    // Clock card (above Now playing).
-    {
-        char dbuf[32], tbuf[16];
-        clockFormatDate(dbuf, sizeof(dbuf));
-        clockFormatTime(tbuf, sizeof(tbuf));
-        p += F("<div class=card><h2>Clock</h2><div class=kv>");
-        p += F("<div>Date</div><div>");
-        p += (dbuf[0] ? htmlEscape(dbuf) : String("(syncing...)"));
+    // Stations card lives at the very top per user spec -- it's the
+    // most-used control on this page. The edit modal HTML lives
+    // further down (with the other modals); CSS/JS positions it as
+    // a fixed overlay so DOM order doesn't matter.
+    p += F("<div class=card><h2>Stations</h2>");
+    p += F("<a href=/discover class=bigDiscover onclick=\"showLoading('Opening Discover...')\">"
+           "&#128269; Discover more stations</a>");
+    p += F("<div id=stationList class=grid>");
+    for (int i = 0; i < n; i++) {
+        p += F("<div class=stationRow draggable=true data-idx=");
+        p += i;
+        p += F(">");
+        p += F("<span class=dragHandle title='Drag to reorder'>&#9776;</span>");
+        p += F("<form method=POST action=/api/station class=stationPick>");
+        p += F("<input type=hidden name=n value="); p += i; p += F(">");
+        p += F("<button class='station");
+        if (i == cur) p += F(" cur");
+        p += F("' type=submit><strong>"); p += (i + 1); p += F(".</strong> ");
+        p += htmlEscape(audioStationDisplayName(i));
+        p += F("<small>"); p += htmlEscape(stationsUrl(i)); p += F("</small>");
+        p += F("</button></form>");
+        p += F("<button type=button class=infoBtn title='Edit name + URL' "
+               "onclick=\"openEdit(");
+        p += i; p += F(",");
+        p += "'"; p += htmlEscape(stationsName(i)); p += "',";
+        p += "'"; p += htmlEscape(stationsUrl(i)); p += "')\">&#9432;</button>";
         p += F("</div>");
-        p += F("<div>Time</div><div>");
-        p += (tbuf[0] ? htmlEscape(tbuf) : String("(syncing...)"));
-        p += F("</div>");
-        p += F("<div>Zone</div><div>"); p += htmlEscape(clockTimezone()); p += F("</div>");
-        p += F("</div>");
-        // Timezone form: presets dropdown + free-text POSIX TZ field.
-        p += F("<form method=POST action=/api/timezone style='margin-top:.6em'>"
-               "<label>Timezone"
-               "<select name=preset onchange=\"tz.value=this.value\">"
-               "<option value=''>-- presets --</option>"
-               "<option value='UTC0'>UTC</option>"
-               "<option value='GMT0BST,M3.5.0/1,M10.5.0'>Europe/London (UK)</option>"
-               "<option value='CET-1CEST,M3.5.0,M10.5.0/3'>Europe/Paris + Berlin</option>"
-               "<option value='EST5EDT,M3.2.0,M11.1.0'>US Eastern</option>"
-               "<option value='CST6CDT,M3.2.0,M11.1.0'>US Central</option>"
-               "<option value='MST7MDT,M3.2.0,M11.1.0'>US Mountain</option>"
-               "<option value='PST8PDT,M3.2.0,M11.1.0'>US Pacific</option>"
-               "<option value='JST-9'>Asia/Tokyo</option>"
-               "<option value='AEST-10AEDT,M10.1.0,M4.1.0/3'>Australia/Sydney</option>"
-               "</select></label>"
-               "<label>Or type a POSIX TZ string"
-               "<input name=tz id=tz value=\"");
-        p += htmlEscape(clockTimezone());
-        p += F("\" required></label>"
-               "<button type=submit>Save timezone</button>"
-               "</form></div>");
     }
+    p += F("</div>");
+    if (n < stationsMax()) {
+        p += F("<p style='margin-top:.6em'>"
+               "<button type=button onclick=\"openAdd()\">+ Add station</button>"
+               " <span style='color:#8aa;font-size:.85em'>");
+        p += n; p += F(" / "); p += stationsMax(); p += F(" slots used</span></p>");
+    } else {
+        p += F("<p style='color:#8aa;font-size:.85em;margin-top:.6em'>List is full (");
+        p += stationsMax(); p += F("). Delete a slot to add more.</p>");
+    }
+    p += F("</div>");
 
     p += F("<div class=card><h2>Now playing</h2><div class=kv>");
     p += F("<div>Station</div><div>");
@@ -195,13 +228,17 @@ void handleIndex() {
     p += F("</div></div>");
 
     p += F("<div class=card><h2>Controls</h2><div class=row>"
-           // Discover and Reboot live elsewhere on the page -- the
-           // former inside the Stations card, the latter at the very
-           // bottom -- per user spec.
            "<form method=POST action=/api/prev><button>Prev</button></form>");
-    p += F("<form method=POST action=/api/play><button>");
-    p += audioIsPaused() ? F("&#9654; Play") : F("&#10074;&#10074; Pause");
-    p += F("</button></form>");
+    // Explicit Play + Pause buttons (always-visible). Both POST to
+    // /api/play (which is a toggle on the audio side); the disabled
+    // attribute makes the meaning unambiguous regardless of state.
+    bool paused = audioIsPaused();
+    p += F("<form method=POST action=/api/play><button");
+    if (!paused) p += F(" disabled");
+    p += F(">&#9654; Play</button></form>");
+    p += F("<form method=POST action=/api/play><button");
+    if (paused)  p += F(" disabled");
+    p += F(">&#10074;&#10074; Pause</button></form>");
     p += F("<form method=POST action=/api/next><button>Next</button></form>");
     p += F("</div>");
 
@@ -230,47 +267,6 @@ void handleIndex() {
     p += audioEqTreble();
     p += F(" oninput=\"et.value=this.value\"></label>");
     p += F("<button type=submit>Apply EQ</button></form>");
-    p += F("</div>");
-
-    p += F("<div class=card><h2>Stations</h2>");
-    p += F("<a href=/discover class=bigDiscover onclick=\"showLoading('Opening Discover...')\">"
-           "&#128269; Discover more stations</a>");
-    p += F("<div id=stationList class=grid>");
-    for (int i = 0; i < n; i++) {
-        p += F("<div class=stationRow draggable=true data-idx=");
-        p += i;
-        p += F(">");
-        // Drag handle.
-        p += F("<span class=dragHandle title='Drag to reorder'>&#9776;</span>");
-        // Pick form.
-        p += F("<form method=POST action=/api/station class=stationPick>");
-        p += F("<input type=hidden name=n value="); p += i; p += F(">");
-        p += F("<button class='station");
-        if (i == cur) p += F(" cur");
-        p += F("' type=submit><strong>"); p += (i + 1); p += F(".</strong> ");
-        p += htmlEscape(audioStationDisplayName(i));
-        p += F("<small>"); p += htmlEscape(stationsUrl(i)); p += F("</small>");
-        p += F("</button></form>");
-        // Info / edit button opens the per-station modal.
-        p += F("<button type=button class=infoBtn title='Edit name + URL' "
-               "onclick=\"openEdit(");
-        p += i; p += F(",");
-        p += "'"; p += htmlEscape(stationsName(i)); p += "',";
-        p += "'"; p += htmlEscape(stationsUrl(i)); p += "')\">&#9432;</button>";
-        p += F("</div>");
-    }
-    p += F("</div>");
-    // "Add station" tile: opens the same modal with empty fields and
-    // n = count (the Add endpoint treats that as "append").
-    if (n < stationsMax()) {
-        p += F("<p style='margin-top:.6em'>"
-               "<button type=button onclick=\"openAdd()\">+ Add station</button>"
-               " <span style='color:#8aa;font-size:.85em'>");
-        p += n; p += F(" / "); p += stationsMax(); p += F(" slots used</span></p>");
-    } else {
-        p += F("<p style='color:#8aa;font-size:.85em;margin-top:.6em'>List is full (");
-        p += stationsMax(); p += F("). Delete a slot to add more.</p>");
-    }
     p += F("</div>");
 
     // Modal + script for /api/station-edit and /api/station-del.
@@ -328,17 +324,66 @@ void handleIndex() {
       "}"
       "</script>");
 
-    // Reboot lives at the very bottom of the page now so the reach-
-    // everything control isn't next to volume sliders.
+    // System card: reach-everything controls at the bottom of the
+    // page. Timezone now lives behind the "Set timezone..." button
+    // (modal pop-up) so it doesn't clutter the home page; the clock
+    // itself ticks in the banner.
     p += F("<div class=card><h2>System</h2>"
            "<p style='margin:.1em 0 .6em'>"
            "<a href=/wifi>Manage WiFi networks</a>"
-           "</p><div class=row>"
+           "</p>"
+           "<div class=row>"
+           "<button type=button onclick=\"openTz()\">"
+           "&#128344; Set timezone...</button>"
            "<form method=POST action=/api/reboot "
            "onsubmit=\"if(!confirm('Reboot the radio?'))return false;"
            "showLoading('Rebooting...')\">"
            "<button class=warn>&#x21bb; Reboot radio</button></form>"
            "</div></div>");
+
+    // Timezone modal. POSTs to /api/timezone, same endpoint the old
+    // Clock-card form used. Preset dropdown fills the free-text
+    // POSIX TZ field; both end up sending tz=<string>.
+    p += F(
+      "<div id=tzModalBg onclick=\"closeTz(event)\"></div>"
+      "<div id=tzModal class=modal>"
+      "<h2>Set timezone</h2>"
+      "<p style='color:#666;margin-top:-.4em;font-size:.9em'>"
+      "Pick a preset or paste a POSIX TZ string. The banner clock "
+      "and the on-device big-clock both follow this setting.</p>"
+      "<form method=POST action=/api/timezone>"
+      "<label>Preset"
+      "<select name=preset onchange=\"tz.value=this.value\">"
+      "<option value=''>-- presets --</option>"
+      "<option value='UTC0'>UTC</option>"
+      "<option value='GMT0BST,M3.5.0/1,M10.5.0'>Europe/London (UK)</option>"
+      "<option value='CET-1CEST,M3.5.0,M10.5.0/3'>Europe/Paris + Berlin</option>"
+      "<option value='EST5EDT,M3.2.0,M11.1.0'>US Eastern</option>"
+      "<option value='CST6CDT,M3.2.0,M11.1.0'>US Central</option>"
+      "<option value='MST7MDT,M3.2.0,M11.1.0'>US Mountain</option>"
+      "<option value='PST8PDT,M3.2.0,M11.1.0'>US Pacific</option>"
+      "<option value='JST-9'>Asia/Tokyo</option>"
+      "<option value='AEST-10AEDT,M10.1.0,M4.1.0/3'>Australia/Sydney</option>"
+      "</select></label>"
+      "<label>POSIX TZ string"
+      "<input name=tz id=tz value=\"");
+    p += htmlEscape(clockTimezone());
+    p += F("\" required></label>"
+      "<div class=row style='margin-top:.6em'>"
+      "<button type=submit>Save timezone</button>"
+      "<button type=button onclick=\"closeTz()\">Cancel</button>"
+      "</div></form></div>"
+      "<script>"
+      "function openTz(){"
+      " tzModal.classList.add('show');"
+      " tzModalBg.classList.add('show');"
+      "}"
+      "function closeTz(e){"
+      " if(e&&e.target&&e.target.id!=='tzModalBg')return;"
+      " tzModal.classList.remove('show');"
+      " tzModalBg.classList.remove('show');"
+      "}"
+      "</script>");
 
     // Loading modal + nav-click helper (shared with /discover).
     p += F(

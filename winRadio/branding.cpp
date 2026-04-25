@@ -18,6 +18,13 @@ const char *on8citPageCss() {
         "header h1{margin:0;font-size:1.25em;font-weight:700;letter-spacing:.06em}"
         "header h1 .yel{color:#FFD400}"
         "header h1 .cya{color:#5ae3ff}"
+        // Live HH:MM:SS in the banner. Sits between the brand text
+        // and the home button; collapses to nothing if the server
+        // didn't render a time (very early boot).
+        "header .bannerClock{font-family:ui-monospace,Menlo,monospace;"
+        "color:#FFD400;font-size:1.05em;letter-spacing:.05em;"
+        "padding:0 .4em;white-space:nowrap}"
+        "header .bannerClock:empty{display:none}"
         // Banner is a link to home; use the surrounding text colour
         // so it doesn't look like a "blue underlined link".
         "header a.brand{display:flex;align-items:center;gap:.7em;flex:1;"
@@ -72,14 +79,19 @@ const char *on8citPageCss() {
         ".row{display:flex;gap:.5em;align-items:center;flex-wrap:wrap}"
         ".row>form,.row>button{flex:0 0 auto;width:auto}"
         ".row>form button{width:auto;padding:.6em 1em}"
-        "#modalBg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);"
-        "backdrop-filter:blur(3px)}"
-        "#modalBg.show,#modal.show{display:block}"
-        "#modal{display:none;position:fixed;top:50%;left:50%;"
+        // Modal helper, shared by every popover (station edit, ad-hoc
+        // wifi connect, set-timezone, ...). The .modalBg / .modal IDs
+        // are kept for backwards compatibility with the original
+        // station-edit dialog; new modals use a dedicated id but
+        // inherit positioning via [id$=ModalBg] / [id$=Modal].
+        "#modalBg,[id$=ModalBg]{display:none;position:fixed;inset:0;"
+        "background:rgba(0,0,0,.6);backdrop-filter:blur(3px)}"
+        "#modalBg.show,#modal.show,[id$=ModalBg].show,[id$=Modal].show{display:block}"
+        "#modal,[id$=Modal]{display:none;position:fixed;top:50%;left:50%;"
         "transform:translate(-50%,-50%);background:#141720;"
         "border:1px solid #2a2f3c;padding:1em 1.2em;border-radius:8px;"
         "box-shadow:0 8px 32px rgba(0,0,0,.5);max-width:94%;width:480px;z-index:10}"
-        "#modal h2{margin:.2em 0 .6em;color:#FFD400;letter-spacing:.06em}"
+        "#modal h2,[id$=Modal] h2{margin:.2em 0 .6em;color:#FFD400;letter-spacing:.06em}"
         ".net{padding:.5em .6em;margin:.15em 0;border:1px solid #242832;"
         "border-radius:6px;background:#181b24;cursor:pointer}"
         ".net:hover{background:#20242f;border-color:#5ae3ff}"
