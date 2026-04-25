@@ -1,15 +1,53 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-OLED Create a set-up info screen accessed by long press of the right button. This should show
-battery information, wifi signal strength, SSID connected to and the IP Number Assigned
-Exit by short press on any button.
 
-Create a station select screen aaccessed by long press on middle key 
-This should be a series of 9 cards per screen, next press on middle moves focus from box
-to box top left to bottom right, left to right, top to bottom, sequential. At bottom right
-next press goes to next screen of 9. Each box contains the name of a station stored. 
-Double click selects the highlighted station where the cursor is. Exit the page by
-short press on Left or Right.
+== Changes made in this round (2-5-2026) ========================================
+
+On-device navigation: two new LCD modes
+----------------------------------------
+  1. System-info screen (DM_SYS_INFO).
+     - Entered by long press on the Right button (>= 2 s).
+     - Shows: battery voltage + 5-bar level, WiFi SSID, signal as a
+       5-bar meter + dBm, IP address, "<host>.local" hostname.
+     - Exits on any short press (Left, Mid or Right).
+     - Long-presses still pass through, so a long-press on Left
+       still puts the radio to sleep, etc.
+
+  2. Station picker (DM_PICKER).
+     - Entered by long press on the Middle button (>= 2 s).
+     - 3x3 grid of station cards. Each card shows the slot number
+       and the friendly name (wrapped to 2 lines if needed). The
+       currently-playing slot is shaded; the cursor cell is yellow.
+     - Mid short press = advance the cursor through the grid in
+       reading order (top-left -> bottom-right). At the bottom-right
+       the next short press moves to the next page of 9; the last
+       page wraps back to slot 0.
+     - Mid double-click = select the highlighted slot
+       (audioSelectStation + close).
+     - Left or Right short press = cancel and return to the previous
+       home mode.
+     - Footer shows page indicator (e.g. "p2/4") when there's more
+       than one page.
+
+  3. Input state machine: Mid and Right now share the same
+     short/double/long state machine as Left. Consequence: NEXT
+     (Mid short) now fires on RELEASE rather than on press, after
+     a 350 ms double-click window. Right has no double-click so
+     VOL_UP fires on release with no extra delay.
+
+  4. New input events: INPUT_PICKER_OPEN (mid long), INPUT_SYS_INFO
+     (right long), INPUT_PICKER_SELECT (mid double).
+
+  5. Main-loop dispatcher is mode-aware:
+     - In DM_SYS_INFO any short press calls displayModalClose() and
+       eats the event.
+     - In DM_PICKER, Mid short = advance, Mid double = select,
+       Left/Right short = cancel; all eaten so they don't double-
+       fire as their normal "global" actions.
+
+  6. New net helper: netCurrentSsid() returns the associated SSID
+     (empty when not connected), so display.cpp doesn't have to
+     reach directly into <WiFi.h>.
 
 
 

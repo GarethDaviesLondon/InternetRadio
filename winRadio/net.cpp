@@ -235,6 +235,10 @@ int netLastJoinedSlot() { return s_lastJoinedSlot; }
 bool   netConnected() { return WiFi.status() == WL_CONNECTED; }
 String netLocalIp()   { return WiFi.localIP().toString(); }
 int    netRssi()      { return WiFi.RSSI(); }
+String netCurrentSsid() {
+    if (WiFi.status() != WL_CONNECTED) return String();
+    return WiFi.SSID();
+}
 const char *netHostname() { return s_hostname; }
 
 // ---- Scan ---------------------------------------------------------------

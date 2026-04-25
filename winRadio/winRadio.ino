@@ -224,6 +224,57 @@ void loop() {
     // Buttons. Any user event counts as activity for the backlight dimmer.
     InputEvent ev = inputPoll();
     if (ev != INPUT_NONE) displayNoteActivity();
+
+    // System-info screen: any short press exits back to the prior mode.
+    // Long-presses (sleep, picker-open) still pass through.
+    if (displayActiveMode() == DM_SYS_INFO) {
+        switch (ev) {
+            case INPUT_NEXT:
+            case INPUT_VOL_UP:
+            case INPUT_MODE_TOGGLE:
+            case INPUT_PLAY_PAUSE:
+                displayModalClose();   // restores prior mode
+                ev = INPUT_NONE;
+                displayRequestRepaint();
+                break;
+            case INPUT_SYS_INFO:
+                // Already in sysinfo; ignore.
+                ev = INPUT_NONE;
+                break;
+            default: break;
+        }
+    }
+    // Picker: Mid short = advance cursor; Mid double = select; Left or
+    // Right short = exit (cancel).
+    else if (displayActiveMode() == DM_PICKER) {
+        switch (ev) {
+            case INPUT_NEXT:           // mid short
+                displayPickerAdvance();
+                ev = INPUT_NONE;
+                break;
+            case INPUT_PICKER_SELECT:  // mid double
+            {
+                int slot = displayPickerSelectedSlot();
+                if (slot >= 0) audioSelectStation(slot);
+                displayModalClose();
+                displayRequestRepaint();
+                ev = INPUT_NONE;
+                break;
+            }
+            case INPUT_MODE_TOGGLE:    // left short
+            case INPUT_VOL_UP:         // right short
+                displayModalClose();
+                displayRequestRepaint();
+                ev = INPUT_NONE;
+                break;
+            case INPUT_PICKER_OPEN:
+                // Already in picker; ignore.
+                ev = INPUT_NONE;
+                break;
+            default: break;
+        }
+    }
+
     switch (ev) {
         case INPUT_NEXT:        audioNextStation(); displayRequestRepaint(); break;
         case INPUT_PREV:        audioPrevStation(); displayRequestRepaint(); break;
@@ -234,6 +285,9 @@ void loop() {
         case INPUT_MODE_TOGGLE: displayToggleMode(); break;
         case INPUT_PLAY_PAUSE:  audioTogglePause(); displayRequestRepaint(); break;
         case INPUT_SLEEP:       powerDeepSleep(); break;
+        case INPUT_PICKER_OPEN: displayPickerOpen(); displayRequestRepaint(); break;
+        case INPUT_SYS_INFO:    displaySysInfoOpen();
+                                displayRequestRepaint(); break;
         default: break;
     }
 

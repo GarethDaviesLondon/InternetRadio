@@ -49,10 +49,20 @@ void displayDrawScroll();
 enum DisplayMode {
     DM_NOW_PLAYING = 0,
     DM_BIG_CLOCK   = 1,
+    DM_SYS_INFO    = 2,   // long-press Right -> battery + WiFi + IP
+    DM_PICKER      = 3,   // long-press Mid  -> 3x3 station grid
 };
 void        displaySetMode(DisplayMode m);
-void        displayToggleMode();
+void        displayToggleMode();          // cycles only between NowPlaying / BigClock
 DisplayMode displayActiveMode();
+
+// Modal screens. Open* sets the mode and remembers the prior mode so
+// Close* can restore it; Close also clears the modal state.
+void displaySysInfoOpen();
+void displayPickerOpen();                 // resets cursor to current slot
+void displayPickerAdvance();              // advance cursor (with paging)
+int  displayPickerSelectedSlot();         // current cursor index
+void displayModalClose();                 // restore prior home mode
 
 // Lightweight: ask for a full repaint at the next loop tick.
 void displayRequestRepaint();

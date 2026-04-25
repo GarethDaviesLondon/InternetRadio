@@ -65,8 +65,19 @@ constexpr int kOnAirScrollH = 14;
 static int          s_onAirPosition = -220;
 static DisplayMode  s_mode = DM_NOW_PLAYING;
 
+// Mode that DM_SYS_INFO / DM_PICKER were opened from -- restored on close.
+static DisplayMode  s_priorMode = DM_NOW_PLAYING;
+
+// Station-picker cursor: 0..stationsCount()-1. Page = cursor/9.
+static int          s_pickerCursor = 0;
+
 void        displaySetMode(DisplayMode m) { s_mode = m; s_repaint = true; }
-void        displayToggleMode()           { displaySetMode(s_mode == DM_NOW_PLAYING ? DM_BIG_CLOCK : DM_NOW_PLAYING); }
+void        displayToggleMode()           {
+    // Only cycles the two "home" modes. Modal screens (sys-info, picker)
+    // are entered by their own gestures and exit explicitly.
+    DisplayMode next = (s_mode == DM_NOW_PLAYING) ? DM_BIG_CLOCK : DM_NOW_PLAYING;
+    displaySetMode(next);
+}
 DisplayMode displayActiveMode()           { return s_mode; }
 
 // --- Theme ---------------------------------------------------------------
@@ -475,6 +486,9 @@ static int    s_lastOnAirPos = 0x7FFFFFFF;
 static DisplayMode s_lastMode = (DisplayMode)-1;
 
 void displayDrawScroll() {
+    // The modal screens own the entire panel; don't overlay the song ticker.
+    if (s_mode == DM_SYS_INFO || s_mode == DM_PICKER) return;
+
     const uint16_t bg = g_theme.bg;
     const char *song = audioSongPlaying();
     String sSong = song ? song : "";
@@ -790,8 +804,241 @@ static void drawBigClock() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// System-info screen (long-press Right button). Battery, WiFi SSID, RSSI,
+// IP. Exits on any short press in the main-loop dispatcher.
+// ---------------------------------------------------------------------------
+static void drawSysInfo() {
+    const uint16_t bg     = g_theme.bg;
+    const uint16_t orange = g_theme.orange;
+    auto &g = g_theme.grays;
+
+    s_sprite.fillRect(0, 0, 240, 240, bg);
+
+    // Header band.
+    s_sprite.fillRect(0, 0, 240, 28, TFT_BLACK);
+    s_sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+    s_sprite.drawString("System info", 6, 6, 2);
+    s_sprite.fillRect(0, 28, 240, 1, orange);
+
+    // Battery.
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("Battery", 8, 40, 2);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%.2f V", powerBatteryVolts());
+    s_sprite.setTextColor(TFT_YELLOW, bg);
+    s_sprite.drawString(buf, 130, 40, 2);
+
+    int batLevel = powerBatteryLevel();
+    int bx = 8, by = 64, bw = 224, bh = 14;
+    s_sprite.drawRect(bx, by, bw, bh, TFT_GREEN);
+    s_sprite.fillRect(bx + 2, by + 2, ((bw - 4) * batLevel) / 13, bh - 4, TFT_GREEN);
+
+    // WiFi SSID.
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("WiFi", 8, 92, 2);
+    String ssid = netCurrentSsid();
+    if (ssid.length() == 0) ssid = "(disconnected)";
+    if (ssid.length() > 20) ssid = ssid.substring(0, 20);
+    s_sprite.setTextColor(TFT_CYAN, bg);
+    s_sprite.drawString(ssid, 60, 92, 2);
+
+    // Signal strength as a 5-bar meter + dBm.
+    int rssi = netRssi();
+    int bars = 0;
+    if      (rssi >= -55) bars = 5;
+    else if (rssi >= -65) bars = 4;
+    else if (rssi >= -72) bars = 3;
+    else if (rssi >= -80) bars = 2;
+    else if (rssi >= -90) bars = 1;
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("Signal", 8, 120, 2);
+    {
+        const int sx = 80, sy = 122, segW = 12, segH = 14, gap = 4;
+        for (int i = 0; i < 5; i++) {
+            uint16_t c = (i < bars) ? TFT_YELLOW : g[11];
+            s_sprite.fillRoundRect(sx + i * (segW + gap), sy + (4 - i) * 0,
+                                   segW, segH, 2, c);
+        }
+    }
+    snprintf(buf, sizeof(buf), "%d dBm", rssi);
+    s_sprite.setTextColor(TFT_YELLOW, bg);
+    s_sprite.drawString(buf, 168, 120, 2);
+
+    // IP address.
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("IP", 8, 148, 2);
+    String ip = netLocalIp();
+    if (ip == "0.0.0.0") ip = "(none)";
+    s_sprite.setTextColor(TFT_CYAN, bg);
+    s_sprite.drawString(ip, 40, 148, 2);
+
+    // Hostname.
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("Host", 8, 172, 2);
+    String host = String(netHostname()) + ".local";
+    s_sprite.setTextColor(TFT_CYAN, bg);
+    s_sprite.drawString(host, 60, 172, 2);
+
+    // Footer hint.
+    s_sprite.fillRect(0, 217, 240, 1, orange);
+    s_sprite.setTextColor(g[6], bg);
+    s_sprite.drawString("Press any button to exit", 6, 222, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Station picker (long-press Mid). 3x3 grid of cells, paged. Mid short
+// advances the cursor; mid double-click selects; left/right short exit.
+// ---------------------------------------------------------------------------
+static void drawPicker() {
+    const uint16_t bg     = g_theme.bg;
+    const uint16_t orange = g_theme.orange;
+    auto &g = g_theme.grays;
+
+    s_sprite.fillRect(0, 0, 240, 240, bg);
+
+    int total = stationsCount();
+    if (s_pickerCursor < 0)        s_pickerCursor = 0;
+    if (s_pickerCursor >= total)   s_pickerCursor = total ? total - 1 : 0;
+
+    int page    = (total > 0) ? (s_pickerCursor / 9) : 0;
+    int pages   = (total > 0) ? ((total + 8) / 9)   : 1;
+    int first   = page * 9;
+    int last    = min(first + 9, total) - 1;
+
+    // Header.
+    s_sprite.fillRect(0, 0, 240, 28, TFT_BLACK);
+    s_sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+    s_sprite.drawString("Pick station", 6, 6, 2);
+    char hdr[24];
+    if (total == 0) {
+        snprintf(hdr, sizeof(hdr), "(empty)");
+    } else {
+        snprintf(hdr, sizeof(hdr), "%d-%d / %d", first + 1, last + 1, total);
+    }
+    s_sprite.setTextColor(TFT_CYAN, TFT_BLACK);
+    s_sprite.drawString(hdr, 144, 6, 2);
+    s_sprite.fillRect(0, 28, 240, 1, orange);
+
+    // 3x3 cell grid: full 240x180 bottom area.
+    constexpr int gridY = 30, gridH = 184;     // 30..214
+    constexpr int cellW = 78, cellH = 60, gx = 2, gy = 32;
+    for (int i = 0; i < 9; i++) {
+        int row = i / 3;
+        int col = i % 3;
+        int cx  = gx + col * (cellW + 2);
+        int cy  = gy + row * (cellH + 2);
+
+        int slotIdx = first + i;
+        bool inUse  = slotIdx < total;
+        bool isCur  = inUse && (slotIdx == s_pickerCursor);
+        bool isPlay = inUse && (slotIdx == audioCurrentStation());
+
+        uint16_t cellBg = isCur ? g_theme.volumeBar
+                          : (isPlay ? 0x4A69 : g[14]);
+        uint16_t cellBd = isCur ? TFT_YELLOW : g[10];
+        uint16_t cellTx = isCur ? TFT_BLACK  : (inUse ? TFT_WHITE : g[6]);
+
+        s_sprite.fillRoundRect(cx, cy, cellW, cellH, 4, cellBg);
+        s_sprite.drawRoundRect(cx, cy, cellW, cellH, 4, cellBd);
+        if (isCur) s_sprite.drawRoundRect(cx + 1, cy + 1, cellW - 2, cellH - 2, 4, TFT_YELLOW);
+
+        // Slot number top-left.
+        char num[8];
+        snprintf(num, sizeof(num), "%d", slotIdx + 1);
+        s_sprite.setTextColor(cellTx, cellBg);
+        s_sprite.drawString(num, cx + 4, cy + 4, 2);
+
+        // Station name, broken into up to 2 visual rows of 10 chars.
+        if (inUse) {
+            String nm = audioStationDisplayName(slotIdx);
+            // Trim to 22 chars total (2 rows of 11).
+            if (nm.length() > 22) nm = nm.substring(0, 22);
+            String row1 = nm, row2;
+            if (nm.length() > 11) {
+                int br = nm.lastIndexOf(' ', 11);
+                if (br < 4) br = 11;
+                row1 = nm.substring(0, br);
+                row2 = nm.substring(br);
+                row1.trim(); row2.trim();
+            }
+            s_sprite.drawString(row1, cx + 4, cy + 24, 1);
+            if (row2.length()) s_sprite.drawString(row2, cx + 4, cy + 36, 1);
+        }
+    }
+
+    // Footer hint.
+    s_sprite.fillRect(0, 217, 240, 1, orange);
+    s_sprite.setTextColor(g[6], bg);
+    if (total == 0) {
+        s_sprite.drawString("No stations -- L/R: exit", 6, 222, 1);
+    } else if (pages > 1) {
+        char hint[48];
+        snprintf(hint, sizeof(hint),
+                 "Mid: next  Mid x2: select  L/R: exit  p%d/%d",
+                 page + 1, pages);
+        s_sprite.drawString(hint, 6, 222, 1);
+    } else {
+        s_sprite.drawString("Mid: next  Mid x2: select  L/R: exit", 6, 222, 1);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Picker public control surface. Open / advance / close are called by
+// the main loop's input dispatcher; selection commit is also routed
+// through the dispatcher so it can call audioSelectStation + close.
+// ---------------------------------------------------------------------------
+static void rememberPrior() {
+    if (s_mode != DM_PICKER && s_mode != DM_SYS_INFO) s_priorMode = s_mode;
+}
+
+void displaySysInfoOpen() {
+    rememberPrior();
+    displaySetMode(DM_SYS_INFO);
+}
+
+void displayPickerOpen() {
+    rememberPrior();
+    s_pickerCursor = audioCurrentStation();
+    if (s_pickerCursor < 0 || s_pickerCursor >= stationsCount()) s_pickerCursor = 0;
+    displaySetMode(DM_PICKER);
+}
+
+void displayPickerAdvance() {
+    int n = stationsCount();
+    if (n <= 0) return;
+    s_pickerCursor++;
+    if (s_pickerCursor >= n) s_pickerCursor = 0;
+    s_repaint = true;
+}
+
+int displayPickerSelectedSlot() {
+    if (stationsCount() <= 0) return -1;
+    return s_pickerCursor;
+}
+
+void displayModalClose() {
+    DisplayMode home = s_priorMode;
+    if (home == DM_PICKER || home == DM_SYS_INFO) home = DM_NOW_PLAYING;
+    displaySetMode(home);
+}
+
 void displayDrawMain() {
     s_sprite.fillRect(0, 0, 240, 240, g_theme.bg);
+
+    if (s_mode == DM_SYS_INFO) {
+        drawSysInfo();
+        blitSprite(s_sprite, 0, 0, DISPLAY_W, DISPLAY_H);
+        s_repaint = false;
+        return;
+    }
+    if (s_mode == DM_PICKER) {
+        drawPicker();
+        blitSprite(s_sprite, 0, 0, DISPLAY_W, DISPLAY_H);
+        s_repaint = false;
+        return;
+    }
+
     drawChrome();
     if (s_mode == DM_BIG_CLOCK) drawBigClock();
     else                         drawNowPlaying();

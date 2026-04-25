@@ -16,6 +16,7 @@ void  netReconnect();
 bool  netConnected();
 String netLocalIp();
 int   netRssi();
+String netCurrentSsid();    // empty when not associated
 const char *netHostname();
 
 // The saved-network slot that successfully connected during the last

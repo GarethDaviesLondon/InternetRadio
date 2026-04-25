@@ -10,12 +10,15 @@
 enum InputEvent {
     INPUT_NONE = 0,
     INPUT_PREV,        // (touch only, future) -- previous station
-    INPUT_NEXT,        // mid button: next station
-    INPUT_VOL_UP,      // right button
+    INPUT_NEXT,        // mid button SHORT press: next station / picker advance focus
+    INPUT_VOL_UP,      // right button SHORT press
     INPUT_VOL_DOWN,    // (touch only, future)
     INPUT_SLEEP,       // left button LONG press -> deep sleep
     INPUT_MODE_TOGGLE, // left button SHORT press -> cycle display mode
     INPUT_PLAY_PAUSE,  // left button DOUBLE click -> toggle audio
+    INPUT_PICKER_OPEN, // mid button LONG press -> open station picker
+    INPUT_PICKER_SELECT,// mid button DOUBLE click -> picker confirm
+    INPUT_SYS_INFO,    // right button LONG press -> open setup info screen
     INPUT_TOUCH_TAP,   // raw touch event payload (future)
 };
 
