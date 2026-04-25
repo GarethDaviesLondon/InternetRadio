@@ -1,6 +1,29 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
 
+ I am currently on a wifi system that does not let me route between nodes on the network (so unit unreachable) so
+ can't use the webserver interface. I cannot reconnect the unit to my phone hotspot alongside my lap top, because
+ it defaults back to the last good connection, even if I try to use the CLI to change node. So:
+
+Enable a way to specify which SSID to connect to:
+
+1. Once in the System info page, another long press should bring up a list of wifi SSID use similar navigation experience
+to station select - 3x3 matrix, short press move along, double press select. If now password saved try to connect without
+one, if fail report. When connecting bring up a screen that says trying to connect to.... show progress, if fail revert to
+the wifi node selection, if successful move to the now playing screen.
+
+2. Enable specification of which wifi node to connect to using the CLI, devise way of handing nodes with stored 
+credentials. Either use the creds stored, or on request, replace the stored creds. Perhaps if wifi is known try
+stored creds, if fail ask for password. Update CLI wiht progress as connecting - like growing line of ... or similar.
+
+Enable way to search and select stations using CLI
+
+3. If not there already create a simple CLI for searching for stations and storing them in the unit. I
+
+3. Enable easy modification of compile-time default station list. Is it in a standalone config file / .h file or simimlar
+in the code base? If it is point me to it, if not please do it, so when I recompile I can have known set of stations. 
+
+
 == Changes made in this round (2-5-2026) ========================================
 
 On-device navigation: two new LCD modes
