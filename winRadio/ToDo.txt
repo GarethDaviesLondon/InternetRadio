@@ -1,5 +1,17 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
+OLED Create a set-up info screen accessed by long press of the right button. This should show
+battery information, wifi signal strength, SSID connected to and the IP Number Assigned
+Exit by short press on any button.
+
+Create a station select screen aaccessed by long press on middle key 
+This should be a series of 9 cards per screen, next press on middle moves focus from box
+to box top left to bottom right, left to right, top to bottom, sequential. At bottom right
+next press goes to next screen of 9. Each box contains the name of a station stored. 
+Double click selects the highlighted station where the cursor is. Exit the page by
+short press on Left or Right.
+
+
 
 == Changes made in this round (1-5-2026) ========================================
 
