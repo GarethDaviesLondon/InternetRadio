@@ -1,5 +1,12 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
+I try to connect to a captive portal, it didn't work. I then tried to connect to my phone Hotspot 
+When I select by going to the OLED page from right button long presses and select using middle
+it doesn't connect sucessfully. When I reboot I try again to connect to the captive network. 
+Can we make the selected one in this phase the default connection attempt. 
+
+While trying to connect please keep the AP active with the ability to use it to interrupt and
+redirect the connection request (and reorder the defaul after boot)
 
 == Changes made in this round (6-5-2026) ========================================
 
