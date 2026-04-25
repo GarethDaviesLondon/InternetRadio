@@ -1,34 +1,67 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
-Create a webpage on the server to manage wifi networks.
-Add, delete, reorder the sequence in which they are scanned.
-Do the order change by drag and drop in a list of wifi. 
-Don't store wifi networks that were seen but never connected to. Only store ones where
-we have had credentials that work (some networks are open, so not all have passwords).
-Do list ones that have been recently been scanned and likely present, but these are different
-from ones that are stored for later use.
 
-The radio station list, please make it possible to re-order the list. Drag and drop the
-item-cards on the web interface. When deleting, adding etc don't reset the page to the top
-but keep the vertical scroll position as was.
+== Changes made in this round (5-5-2026) ========================================
 
-When navigating the station list on the OLED display, during that state make short presees
-on the right button advance through the list, the middle button reverse through the list
-(when sequential, if you just miss the one you want with an extra press it's painful to 
-have to go through all of them to loop back). Make selection of the station a double or long 
-press on either middle or right button. THen revert back to now playing with the buttons performing
-as normal.
+  1. Boot Morse sequence shortened from "ON8CIT" to "CIT".
 
-in Now playing mode - double press on the left should move to a detail screen about the station
-including it's URL, home page 
+  2. IMU pause/resume reworked. Was: face-up resumes, face-down
+     pauses (binary either-or). New: face-down pauses (gravity on
+     +Z dominant, Az > 0.85 g for 500 ms); ANY tilt past ~45 deg
+     off horizontal resumes (Az < 0.70 g for 300 ms). So the unit
+     can be stood on any edge, propped against something, or
+     simply picked up to resume; only laying it flat face-down
+     pauses. Hysteresis (0.85 / 0.70 g) prevents oscillation.
 
-Make the morse sequence at start up only say "CIT" 
+  3. New backend API stationsMove(from, to) plus an audioSetCurrentSlot
+     helper that updates the playing-slot pointer without
+     reconnecting. Together they let drag-drop reorder shuffle
+     entries while the current stream keeps playing.
 
-IMU orientation is now correct - but only wakes when it is lying on it's back. I would like to wake
-it if I is also stood on one of it's edges. So face down = pause. Movement to (say) past 45 degrees on any edge,
-un-pause.
+  4. On-device station picker controls reworked per user:
+       - Right short = cursor forward (next)
+       - Mid short   = cursor backward (prev)
+       - Mid double-click, Mid long-press, Right long-press = select
+       - Left short  = cancel back to the prior home mode
+     The previous "Mid short = next" behaviour made it painful to
+     back up by one when you over-shot the desired station.
 
+  5. New display mode DM_STATION_DETAIL. Triggered by a double-click
+     on the Left button while in Now Playing. Shows the slot
+     number / N, friendly name, ICY broadcast name (when the
+     stream sent one), the full stream URL wrapped onto multiple
+     lines, current bitrate, and the latest song title. Any short
+     press exits. Left double in BigClock mode still toggles
+     play/pause -- the new mapping only fires from Now Playing.
 
+  6. Web station list: drag-and-drop reorder.
+     - Each row gets a draggable handle (& a HTML5 dragstart/drop
+       wiring on the row itself).
+     - Drop fires POST /api/station-move with from + to indices;
+       the audio module's playing-slot index is fixed up so the
+       current stream keeps playing across the reorder.
+     - Page scroll position is preserved across edits, adds and
+       deletes via window.scrollY in sessionStorage. The 302
+       redirect-back UX no longer slams the user back to the top.
+
+  7. New /wifi page: full WiFi credential management.
+     - "Saved networks" card: drag-drop reorderable list (the
+       boot-time connect loop walks this top-to-bottom). Each row
+       has Connect (live-switch) and Delete actions; the currently-
+       joined slot is flagged with a yellow "(joined)" tag.
+     - "Visible networks" card: scanned APs that are NOT yet in
+       the saved list (so the two columns don't duplicate). Each
+       has a Connect button that opens a small password modal,
+       saving creds on a successful join.
+     - "Add manually" card: text inputs for SSID + password, for
+       hidden / out-of-range networks. Saves without connecting.
+     - Rescan button to refresh the visible list.
+     - We DO NOT auto-save networks that were merely scanned --
+       only successful-connect or explicit-save flows persist
+       credentials, matching the user's spec.
+     - New endpoints: /api/wifi-connect, /api/wifi-connect-adhoc,
+       /api/wifi-add, /api/wifi-del, /api/wifi-move,
+       /api/wifi-rescan. All listed in /api-docs.
 
 
 == Changes made in this round (4-5-2026) ========================================

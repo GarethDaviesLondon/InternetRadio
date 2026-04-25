@@ -247,15 +247,26 @@ void loop() {
             default: break;
         }
     }
-    // Picker: Mid short = advance cursor; Mid double = select; Left or
-    // Right short = exit (cancel).
+    // Station picker:
+    //   Right short      = cursor forward (next)
+    //   Mid short        = cursor backward (prev)
+    //   Mid double-click = select
+    //   Mid long-press   = select (was: open picker, but already here)
+    //   Right long-press = select (was: open sysinfo, ditto)
+    //   Left short       = exit (cancel)
     else if (displayActiveMode() == DM_PICKER) {
         switch (ev) {
-            case INPUT_NEXT:           // mid short
+            case INPUT_VOL_UP:         // right short -- forward
                 displayPickerAdvance();
                 ev = INPUT_NONE;
                 break;
-            case INPUT_PICKER_SELECT:  // mid double
+            case INPUT_NEXT:           // mid short -- backward
+                displayPickerRetreat();
+                ev = INPUT_NONE;
+                break;
+            case INPUT_PICKER_SELECT:  // mid double-click
+            case INPUT_PICKER_OPEN:    // mid long-press (already in picker)
+            case INPUT_SYS_INFO:       // right long-press (already in picker)
             {
                 int slot = displayPickerSelectedSlot();
                 if (slot >= 0) audioSelectStation(slot);
@@ -265,13 +276,8 @@ void loop() {
                 break;
             }
             case INPUT_MODE_TOGGLE:    // left short
-            case INPUT_VOL_UP:         // right short
                 displayModalClose();
                 displayRequestRepaint();
-                ev = INPUT_NONE;
-                break;
-            case INPUT_PICKER_OPEN:
-                // Already in picker; ignore.
                 ev = INPUT_NONE;
                 break;
             default: break;
@@ -338,6 +344,22 @@ void loop() {
     else if (displayActiveMode() == DM_WIFI_CONNECT) {
         if (ev != INPUT_SLEEP) ev = INPUT_NONE;
     }
+    // Station details: any short press returns to NP. Long-presses
+    // (sleep, sysinfo, picker) still pass through.
+    else if (displayActiveMode() == DM_STATION_DETAIL) {
+        switch (ev) {
+            case INPUT_NEXT:
+            case INPUT_VOL_UP:
+            case INPUT_MODE_TOGGLE:
+            case INPUT_PLAY_PAUSE:
+            case INPUT_PICKER_SELECT:
+                displayModalClose();
+                displayRequestRepaint();
+                ev = INPUT_NONE;
+                break;
+            default: break;
+        }
+    }
 
     switch (ev) {
         case INPUT_NEXT:        audioNextStation(); displayRequestRepaint(); break;
@@ -347,7 +369,18 @@ void loop() {
         case INPUT_VOL_DOWN:    audioSetVolume(audioVolume() - 1);
                                 displayRequestRepaint(); break;
         case INPUT_MODE_TOGGLE: displayToggleMode(); break;
-        case INPUT_PLAY_PAUSE:  audioTogglePause(); displayRequestRepaint(); break;
+        case INPUT_PLAY_PAUSE:
+            // Left double-click. In Now Playing, open the station-detail
+            // screen (URL, ICY, bitrate). In other home modes, fall back
+            // to the original play/pause shortcut.
+            if (displayActiveMode() == DM_NOW_PLAYING) {
+                displayStationDetailOpen();
+                displayRequestRepaint();
+            } else {
+                audioTogglePause();
+                displayRequestRepaint();
+            }
+            break;
         case INPUT_SLEEP:       powerDeepSleep(); break;
         case INPUT_PICKER_OPEN: displayPickerOpen(); displayRequestRepaint(); break;
         case INPUT_SYS_INFO:    displaySysInfoOpen();

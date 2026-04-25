@@ -503,7 +503,8 @@ static DisplayMode s_lastMode = (DisplayMode)-1;
 void displayDrawScroll() {
     // The modal screens own the entire panel; don't overlay the song ticker.
     if (s_mode == DM_SYS_INFO || s_mode == DM_PICKER ||
-        s_mode == DM_WIFI_PICKER || s_mode == DM_WIFI_CONNECT) return;
+        s_mode == DM_WIFI_PICKER || s_mode == DM_WIFI_CONNECT ||
+        s_mode == DM_STATION_DETAIL) return;
 
     const uint16_t bg = g_theme.bg;
     const char *song = audioSongPlaying();
@@ -987,15 +988,16 @@ static void drawPicker() {
     s_sprite.fillRect(0, 217, 240, 1, orange);
     s_sprite.setTextColor(g[6], bg);
     if (total == 0) {
-        s_sprite.drawString("No stations -- L/R: exit", 6, 222, 1);
+        s_sprite.drawString("No stations -- L: exit", 6, 222, 1);
     } else if (pages > 1) {
-        char hint[48];
+        char hint[64];
         snprintf(hint, sizeof(hint),
-                 "Mid: next  Mid x2: select  L/R: exit  p%d/%d",
+                 "R: next  M: prev  hold/x2: pick  L: exit  p%d/%d",
                  page + 1, pages);
         s_sprite.drawString(hint, 6, 222, 1);
     } else {
-        s_sprite.drawString("Mid: next  Mid x2: select  L/R: exit", 6, 222, 1);
+        s_sprite.drawString("R: next  M: prev  hold/x2: pick  L: exit",
+                            6, 222, 1);
     }
 }
 
@@ -1013,6 +1015,11 @@ void displaySysInfoOpen() {
     displaySetMode(DM_SYS_INFO);
 }
 
+void displayStationDetailOpen() {
+    rememberPrior();
+    displaySetMode(DM_STATION_DETAIL);
+}
+
 void displayPickerOpen() {
     rememberPrior();
     s_pickerCursor = audioCurrentStation();
@@ -1028,6 +1035,14 @@ void displayPickerAdvance() {
     s_repaint = true;
 }
 
+void displayPickerRetreat() {
+    int n = stationsCount();
+    if (n <= 0) return;
+    s_pickerCursor--;
+    if (s_pickerCursor < 0) s_pickerCursor = n - 1;
+    s_repaint = true;
+}
+
 int displayPickerSelectedSlot() {
     if (stationsCount() <= 0) return -1;
     return s_pickerCursor;
@@ -1036,7 +1051,8 @@ int displayPickerSelectedSlot() {
 void displayModalClose() {
     DisplayMode home = s_priorMode;
     if (home == DM_PICKER || home == DM_SYS_INFO ||
-        home == DM_WIFI_PICKER || home == DM_WIFI_CONNECT) {
+        home == DM_WIFI_PICKER || home == DM_WIFI_CONNECT ||
+        home == DM_STATION_DETAIL) {
         home = DM_NOW_PLAYING;
     }
     displaySetMode(home);
@@ -1174,6 +1190,110 @@ static void drawWifiPicker() {
 }
 
 // ---------------------------------------------------------------------------
+// Station details screen (Left double-click in Now Playing). Shows the
+// current slot's friendly name, full stream URL (wrapped to fit the
+// 240 px width), ICY broadcast name, codec / bitrate, and current song.
+// ---------------------------------------------------------------------------
+namespace {
+// Word-wrap helper: break a long string into lines of <= max chars,
+// preferring whitespace breaks. URLs without spaces just hard-wrap.
+void wrapLines(const String &s, int maxChars, std::vector<String> &out) {
+    int i = 0, n = s.length();
+    while (i < n) {
+        int end = i + maxChars;
+        if (end >= n) { out.push_back(s.substring(i)); break; }
+        int br = -1;
+        for (int j = end; j > i; j--) {
+            char c = s[j];
+            if (c == ' ' || c == '/' || c == '?' || c == '&' || c == '=' ) { br = j + 1; break; }
+        }
+        if (br < 0 || br <= i) br = end;
+        out.push_back(s.substring(i, br));
+        i = br;
+        while (i < n && s[i] == ' ') i++;
+    }
+}
+} // namespace
+
+static void drawStationDetail() {
+    const uint16_t bg     = g_theme.bg;
+    const uint16_t orange = g_theme.orange;
+    auto &g = g_theme.grays;
+
+    s_sprite.fillRect(0, 0, 240, 240, bg);
+    s_sprite.fillRect(0, 0, 240, 28, TFT_BLACK);
+    s_sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+    s_sprite.drawString("Station details", 6, 6, 2);
+    s_sprite.fillRect(0, 28, 240, 1, orange);
+
+    int slot = audioCurrentStation();
+    int n    = stationsCount();
+
+    // Slot indicator + friendly name.
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("Slot", 8, 36, 2);
+    char idx[16];
+    snprintf(idx, sizeof(idx), "%d / %d", slot + 1, n);
+    s_sprite.setTextColor(TFT_CYAN, bg);
+    s_sprite.drawString(idx, 56, 36, 2);
+
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("Name", 8, 60, 2);
+    String nm = audioStationDisplayName(slot);
+    if (nm.length() > 28) nm = nm.substring(0, 28);
+    s_sprite.setTextColor(TFT_YELLOW, bg);
+    s_sprite.drawString(nm, 56, 60, 2);
+
+    // ICY station name (if the stream sent one).
+    String icy = audioCurStation();
+    if (icy.length() && icy != nm) {
+        s_sprite.setTextColor(g[2], bg);
+        s_sprite.drawString("On air", 8, 84, 2);
+        if (icy.length() > 26) icy = icy.substring(0, 26);
+        s_sprite.setTextColor(TFT_CYAN, bg);
+        s_sprite.drawString(icy, 70, 84, 2);
+    }
+
+    // URL (wrapped). At font 1 (~6 px/char) we fit ~38 chars/240 px.
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("URL", 8, 110, 1);
+    String url = stationsUrl(slot);
+    std::vector<String> lines;
+    wrapLines(url, 38, lines);
+    int yy = 122;
+    int maxLines = 4;
+    s_sprite.setTextColor(g[2], bg);
+    for (int i = 0; i < (int)lines.size() && i < maxLines; i++) {
+        s_sprite.drawString(lines[i], 8, yy, 1);
+        yy += 10;
+    }
+    if ((int)lines.size() > maxLines) {
+        s_sprite.drawString("...", 8, yy, 1);
+    }
+
+    // Codec / bitrate.
+    long br = audioBitrate();
+    char info[32];
+    if (br > 0) snprintf(info, sizeof(info), "%ld kbps", br);
+    else        snprintf(info, sizeof(info), "(unknown)");
+    s_sprite.setTextColor(g[2], bg);
+    s_sprite.drawString("Bitrate", 8, 178, 2);
+    s_sprite.setTextColor(TFT_YELLOW, bg);
+    s_sprite.drawString(info, 80, 178, 2);
+
+    // Current song line at the bottom.
+    String song = audioSongPlaying();
+    if (song.length() > 38) song = song.substring(0, 38);
+    s_sprite.setTextColor(g[6], bg);
+    s_sprite.drawString(song, 8, 198, 1);
+
+    // Footer hint.
+    s_sprite.fillRect(0, 217, 240, 1, orange);
+    s_sprite.setTextColor(g[6], bg);
+    s_sprite.drawString("Any short press to exit", 6, 222, 1);
+}
+
+// ---------------------------------------------------------------------------
 // "Connecting to <ssid>..." progress screen.
 // ---------------------------------------------------------------------------
 
@@ -1273,6 +1393,12 @@ void displayDrawMain() {
     }
     if (s_mode == DM_WIFI_CONNECT) {
         drawWifiConnect();
+        blitSprite(s_sprite, 0, 0, DISPLAY_W, DISPLAY_H);
+        s_repaint = false;
+        return;
+    }
+    if (s_mode == DM_STATION_DETAIL) {
+        drawStationDetail();
         blitSprite(s_sprite, 0, 0, DISPLAY_W, DISPLAY_H);
         s_repaint = false;
         return;

@@ -47,12 +47,13 @@ void displayDrawScroll();
 // clock" mode hides the now-playing card and station switcher and shows
 // a large HH:MM:SS in the centre; the banner + footer stay put.
 enum DisplayMode {
-    DM_NOW_PLAYING  = 0,
-    DM_BIG_CLOCK    = 1,
-    DM_SYS_INFO     = 2,   // long-press Right -> battery + WiFi + IP
-    DM_PICKER       = 3,   // long-press Mid  -> 3x3 station grid
-    DM_WIFI_PICKER  = 4,   // long-press Right while in sysinfo -> SSID grid
-    DM_WIFI_CONNECT = 5,   // showing "connecting to <ssid>..." progress
+    DM_NOW_PLAYING    = 0,
+    DM_BIG_CLOCK      = 1,
+    DM_SYS_INFO       = 2,   // long-press Right -> battery + WiFi + IP
+    DM_PICKER         = 3,   // long-press Mid  -> 3x3 station grid
+    DM_WIFI_PICKER    = 4,   // long-press Right while in sysinfo -> SSID grid
+    DM_WIFI_CONNECT   = 5,   // showing "connecting to <ssid>..." progress
+    DM_STATION_DETAIL = 6,   // Left double in Now Playing -> stream details
 };
 void        displaySetMode(DisplayMode m);
 void        displayToggleMode();          // cycles only between NowPlaying / BigClock
@@ -61,8 +62,10 @@ DisplayMode displayActiveMode();
 // Modal screens. Open* sets the mode and remembers the prior mode so
 // Close* can restore it; Close also clears the modal state.
 void displaySysInfoOpen();
+void displayStationDetailOpen();           // Left double in NP -> details
 void displayPickerOpen();                 // resets cursor to current slot
-void displayPickerAdvance();              // advance cursor (with paging)
+void displayPickerAdvance();              // cursor forward (wraps)
+void displayPickerRetreat();              // cursor backward (wraps)
 int  displayPickerSelectedSlot();         // current cursor index
 void displayModalClose();                 // restore prior home mode
 

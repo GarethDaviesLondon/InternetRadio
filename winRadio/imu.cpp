@@ -199,32 +199,45 @@ void imuLoop() {
     s_emaY += alpha * (gy - s_emaY);
     s_emaZ += alpha * (gz - s_emaZ);
 
-    // Classify current orientation. Require |Z| > 0.75 g to lock in
-    // face-up/down (was 0.6 g; user reported the unit was too touchy on
-    // mild tilts); everything else is "side" (hand-held, tilted).
+    // Two-state classifier with hysteresis. We only care about "lying
+    // flat face-down on a surface" vs "anything else". Face-down is
+    // entered when the gravity vector dominates +Z; we leave face-down
+    // when the unit tilts more than ~45 deg off horizontal (any edge,
+    // any direction). The face-up event is emitted on the leave
+    // transition so the existing main-loop "resume if WE paused"
+    // wiring keeps working.
     //
     // Polarity note: on the Waveshare board the accelerometer +Z axis
-    // points OUT THE BACK of the case, not out the screen. So when the
-    // unit lies screen-up the gravity vector reads NEGATIVE on Z, and
-    // screen-down reads POSITIVE. This caused the original "face down
-    // pause" gesture to fire backwards.
-    OrientationState cur;
-    if      (s_emaZ < -0.75f) cur = ORI_FACE_UP;
-    else if (s_emaZ >  0.75f) cur = ORI_FACE_DOWN;
-    else                      cur = ORI_SIDE;
+    // points OUT THE BACK of the case (not the screen), so screen-down
+    // reads gravity POSITIVE on Z.
+    //
+    // Thresholds:
+    //   enter face-down: Az > 0.85 g sustained 500 ms (deep, stable)
+    //   leave face-down: Az < 0.70 g sustained 300 ms (~45 deg tilt)
+    constexpr float kEnterFaceDownG = 0.85f;
+    constexpr float kLeaveFaceDownG = 0.70f;
+    constexpr uint32_t kEnterDebounceMs = 500;
+    constexpr uint32_t kLeaveDebounceMs = 300;
 
-    // Debounce: an orientation must hold for 500 ms before it's
-    // accepted (was 300 ms; reduces the chance that a moment of tilt
-    // while picking the unit up flips the orientation).
+    OrientationState cur;
+    if (s_ori == ORI_FACE_DOWN) {
+        // Already face-down; only leave when we tilt past the
+        // shallower threshold so we don't oscillate.
+        cur = (s_emaZ < kLeaveFaceDownG) ? ORI_SIDE : ORI_FACE_DOWN;
+    } else {
+        cur = (s_emaZ > kEnterFaceDownG) ? ORI_FACE_DOWN : ORI_SIDE;
+    }
+
     if (cur != s_pendingOri) {
         s_pendingOri   = cur;
         s_pendingSince = now;
     }
-    if (cur != s_ori && (now - s_pendingSince) > 500) {
+    uint32_t debounce = (cur == ORI_FACE_DOWN) ? kEnterDebounceMs : kLeaveDebounceMs;
+    if (cur != s_ori && (now - s_pendingSince) > debounce) {
         OrientationState was = s_ori;
         s_ori = cur;
         if (cur == ORI_FACE_DOWN && was != ORI_FACE_DOWN) s_evFaceDown = true;
-        if (cur == ORI_FACE_UP   && was != ORI_FACE_UP)   s_evFaceUp   = true;
+        if (cur != ORI_FACE_DOWN && was == ORI_FACE_DOWN) s_evFaceUp   = true;
     }
 }
 

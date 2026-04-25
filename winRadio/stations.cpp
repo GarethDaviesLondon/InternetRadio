@@ -148,6 +148,20 @@ bool stationsDelete(int idx) {
     return persistAll();
 }
 
+bool stationsMove(int from, int to) {
+    if (from < 0 || from >= s_count) return false;
+    if (to   < 0 || to   >= s_count) return false;
+    if (from == to) return true;
+    Entry tmp = s_list[from];
+    if (from < to) {
+        for (int i = from; i < to; i++) s_list[i] = s_list[i + 1];
+    } else {
+        for (int i = from; i > to; i--) s_list[i] = s_list[i - 1];
+    }
+    s_list[to] = tmp;
+    return persistAll();
+}
+
 void stationsResetToDefaults() {
     s_count = 0;
     if (stationsLoadFromSd() > 0) return;

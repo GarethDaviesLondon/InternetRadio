@@ -156,8 +156,8 @@ static void morseWriteFrames(i2s_chan_handle_t h, uint32_t frames, bool toneOn) 
 }
 
 void audioPlayMorseR() {
-    // Boot callsign: "ON8CIT" at 35 WPM.
-    audioPlayCwString("ON8CIT");
+    // Boot callsign: "CIT" at 35 WPM.
+    audioPlayCwString("CIT");
 }
 
 static void morseOpenChannel(i2s_chan_handle_t *txOut) {
@@ -295,6 +295,15 @@ void audioLoop() { s_audio.loop(); }
 // --------------------------------------------------------------------------
 
 int audioCurrentStation() { return s_chosen; }
+
+void audioSetCurrentSlot(int idx) {
+    int n = stationsCount();
+    if (n <= 0) { s_chosen = 0; return; }
+    if (idx < 0)  idx = 0;
+    if (idx >= n) idx = n - 1;
+    s_chosen = idx;
+    persistSession();
+}
 
 bool audioSelectStation(int idx) {
     int n = stationsCount();

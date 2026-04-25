@@ -77,6 +77,7 @@ String pageFoot() {
     p += F("<footer>");
     p += FIRMWARE_NAME; p += F(" "); p += FIRMWARE_VERSION;
     p += F(" &mdash; <a href=/>home</a> &middot; <a href=/discover>discover</a>"
+           " &middot; <a href=/wifi>wifi</a>"
            " &middot; <a href=/api-docs>API</a></footer></body></html>");
     return p;
 }
@@ -234,9 +235,14 @@ void handleIndex() {
     p += F("<div class=card><h2>Stations</h2>");
     p += F("<a href=/discover class=bigDiscover onclick=\"showLoading('Opening Discover...')\">"
            "&#128269; Discover more stations</a>");
-    p += F("<div class=grid>");
+    p += F("<div id=stationList class=grid>");
     for (int i = 0; i < n; i++) {
-        p += F("<div class=stationRow>");
+        p += F("<div class=stationRow draggable=true data-idx=");
+        p += i;
+        p += F(">");
+        // Drag handle.
+        p += F("<span class=dragHandle title='Drag to reorder'>&#9776;</span>");
+        // Pick form.
         p += F("<form method=POST action=/api/station class=stationPick>");
         p += F("<input type=hidden name=n value="); p += i; p += F(">");
         p += F("<button class='station");
@@ -324,7 +330,10 @@ void handleIndex() {
 
     // Reboot lives at the very bottom of the page now so the reach-
     // everything control isn't next to volume sliders.
-    p += F("<div class=card><h2>System</h2><div class=row>"
+    p += F("<div class=card><h2>System</h2>"
+           "<p style='margin:.1em 0 .6em'>"
+           "<a href=/wifi>Manage WiFi networks</a>"
+           "</p><div class=row>"
            "<form method=POST action=/api/reboot "
            "onsubmit=\"if(!confirm('Reboot the radio?'))return false;"
            "showLoading('Rebooting...')\">"
@@ -355,6 +364,58 @@ void handleIndex() {
       " if(!h||h.startsWith('#')||h.startsWith('http')||a.target==='_blank')return;"
       " a.addEventListener('click',()=>showLoading('Loading page...'));"
       "});"
+      // ---- Scroll preservation across station edits / adds / deletes.
+      // The relevant POSTs 302 back to / on success; we save the current
+      // scrollY before submit and restore it on the next pageshow.
+      "function saveScroll(){sessionStorage.setItem('homeScroll',window.scrollY||0);}"
+      "document.querySelectorAll("
+      " 'form[action=\"/api/station-edit\"],"
+      " form[action=\"/api/station-del\"],"
+      " form[action=\"/api/station\"]')"
+      ".forEach(f=>f.addEventListener('submit',saveScroll));"
+      "window.addEventListener('pageshow',()=>{"
+      " const y=sessionStorage.getItem('homeScroll');"
+      " if(y!==null){window.scrollTo(0,parseInt(y,10));sessionStorage.removeItem('homeScroll');}"
+      "});"
+      // ---- Drag-and-drop reorder. Uses HTML5 native DnD (works on any
+      // desktop browser; mobile users are best served by editing the
+      // list explicitly via the modal). On drop we POST to
+      // /api/station-move and reload to pick up the canonical order +
+      // the now-correct slot numbers.
+      "(function(){"
+      "const list=document.getElementById('stationList');"
+      "if(!list)return;"
+      "let dragSrc=null;"
+      "list.querySelectorAll('.stationRow').forEach(row=>{"
+      " row.addEventListener('dragstart',e=>{"
+      "  dragSrc=row;row.classList.add('dragging');"
+      "  e.dataTransfer.effectAllowed='move';"
+      "  e.dataTransfer.setData('text/plain',row.dataset.idx||'');"
+      " });"
+      " row.addEventListener('dragend',()=>{row.classList.remove('dragging');"
+      "  list.querySelectorAll('.dropTarget').forEach(r=>r.classList.remove('dropTarget'));});"
+      " row.addEventListener('dragover',e=>{"
+      "  if(!dragSrc||dragSrc===row)return;"
+      "  e.preventDefault();e.dataTransfer.dropEffect='move';"
+      "  list.querySelectorAll('.dropTarget').forEach(r=>r.classList.remove('dropTarget'));"
+      "  row.classList.add('dropTarget');"
+      " });"
+      " row.addEventListener('drop',async e=>{"
+      "  e.preventDefault();"
+      "  if(!dragSrc||dragSrc===row)return;"
+      "  const from=parseInt(dragSrc.dataset.idx,10);"
+      "  const to=parseInt(row.dataset.idx,10);"
+      "  saveScroll();"
+      "  showLoading('Reordering...');"
+      "  const fd=new FormData();fd.append('from',from);fd.append('to',to);"
+      "  try{"
+      "   const r=await fetch('/api/station-move',{method:'POST',body:fd});"
+      "   if(!r.ok)throw new Error('HTTP '+r.status);"
+      "   location.href='/';"
+      "  }catch(err){alert('Reorder failed: '+err.message);location.reload();}"
+      " });"
+      "});"
+      "})();"
       "</script>");
 
     p += pageFoot();
@@ -404,6 +465,33 @@ void handleStationEdit() {
     }
     s_http.sendHeader("Location", "/");
     s_http.send(302);
+}
+
+// POST /api/station-move  (from = source idx, to = destination idx)
+// Used by the drag-drop reorder UI on the home page.
+void handleStationMove() {
+    if (!s_http.hasArg("from") || !s_http.hasArg("to")) {
+        s_http.send(400, "text/plain", "missing from/to"); return;
+    }
+    int from = s_http.arg("from").toInt();
+    int to   = s_http.arg("to").toInt();
+    int curBefore = audioCurrentStation();
+    if (!stationsMove(from, to)) {
+        s_http.send(400, "text/plain", "out of range"); return;
+    }
+    // Track the playing slot through the move so the audio pointer
+    // keeps pointing at the same stream rather than at whatever
+    // station happens to occupy the old index.
+    int curAfter = curBefore;
+    if (curBefore == from) {
+        curAfter = to;
+    } else if (from < to) {
+        if (curBefore > from && curBefore <= to) curAfter = curBefore - 1;
+    } else {
+        if (curBefore < from && curBefore >= to) curAfter = curBefore + 1;
+    }
+    if (curAfter != curBefore) audioSetCurrentSlot(curAfter);
+    s_http.send(200, "text/plain", "ok");
 }
 
 // POST /api/station-del  (n = slot index)
@@ -486,7 +574,11 @@ void handleApiDocs() {
            "<div>Full state as JSON (ssid, station, song, volume, paused, clock ...)</div>"
            "<div>POST /api/station</div><div>Body: n=&lt;0..N-1&gt; -- select saved slot</div>"
            "<div>POST /api/station-edit</div>"
-           "<div>Body: n=&lt;slot&gt; name=... url=... (or reset=1) -- edit a saved slot</div>"
+           "<div>Body: n=&lt;slot&gt; name=... url=...; n=-1 or n=count appends</div>"
+           "<div>POST /api/station-del</div>"
+           "<div>Body: n=&lt;slot&gt; -- remove (list shifts down)</div>"
+           "<div>POST /api/station-move</div>"
+           "<div>Body: from=&lt;src&gt; to=&lt;dst&gt; -- reorder</div>"
            "<div>POST /api/next</div><div>Cycle to the next saved slot</div>"
            "<div>POST /api/prev</div><div>Cycle to the previous saved slot</div>"
            "<div>POST /api/play</div><div>Toggle pause / resume</div>"
@@ -497,6 +589,18 @@ void handleApiDocs() {
            "<div>POST /api/listen</div>"
            "<div>Body: url=... name=... -- ad-hoc preview play (Discover uses this)</div>"
            "<div>POST /api/timezone</div><div>Body: tz=&lt;POSIX string&gt;</div>"
+           "<div>POST /api/wifi-connect</div>"
+           "<div>Body: idx=&lt;saved index&gt; -- switch to a saved network</div>"
+           "<div>POST /api/wifi-connect-adhoc</div>"
+           "<div>Body: ssid=... pass=... -- ad-hoc connect, save on success</div>"
+           "<div>POST /api/wifi-add</div>"
+           "<div>Body: ssid=... pass=... -- save creds without connecting</div>"
+           "<div>POST /api/wifi-del</div>"
+           "<div>Body: idx=&lt;n&gt; -- remove a saved network</div>"
+           "<div>POST /api/wifi-move</div>"
+           "<div>Body: from=&lt;n&gt; to=&lt;n&gt; -- reorder saved list</div>"
+           "<div>POST /api/wifi-rescan</div>"
+           "<div>Triggers a fresh visible-network scan</div>"
            "<div>POST /api/reboot</div><div>Restarts the radio</div>"
            "</div>"
            "</div>"
@@ -771,6 +875,270 @@ void handleListen() {
     s_http.send(ok ? 200 : 502, "text/plain", ok ? "ok" : "playback failed");
 }
 
+// ---- /wifi ----------------------------------------------------------------
+// Manages the saved-network list (the same list the boot-time
+// connect loop walks). Also surfaces currently-visible APs from the
+// last scan so the user can save / connect to one without typing.
+//
+// We deliberately DO NOT auto-save scanned networks -- the saved list
+// is for credentials we know work. wifiAddNetwork is only called
+// after a successful connect or an explicit user save.
+void handleWifi() {
+    String p = pageHead("ON8CIT WebRadio -- WiFi");
+
+    int saved = wifiNetworkCount();
+    int curIdx = netLastJoinedSlot();
+
+    // ---- Saved networks card.
+    p += F("<div class=card><h2>Saved networks</h2>"
+           "<p style='color:#8aa;font-size:.85em;margin:.1em 0 .6em'>"
+           "Drag the &#9776; handle to reorder -- the boot-time connect "
+           "loop walks this list top-to-bottom.</p>");
+    if (saved == 0) {
+        p += F("<p style='color:#8aa'>No saved networks. Add one below or "
+               "connect to a visible network.</p>");
+    } else {
+        p += F("<div id=savedList class=grid>");
+        for (int i = 0; i < saved; i++) {
+            p += F("<div class=stationRow draggable=true data-idx=");
+            p += i; p += F(">");
+            p += F("<span class=dragHandle title='Drag to reorder'>&#9776;</span>");
+            p += F("<div class='station");
+            if (i == curIdx) p += F(" cur");
+            p += F("' style='flex:1;cursor:default'>");
+            p += F("<strong>"); p += (i + 1); p += F(".</strong> ");
+            p += htmlEscape(wifiNetworkSsid(i));
+            const char *pass = wifiNetworkPass(i);
+            if (i == curIdx) p += F("  <small style='color:#FFD400'>(joined)</small>");
+            if (strlen(pass) == 0) p += F("  <small>(open)</small>");
+            else                    p += F("  <small>(saved password)</small>");
+            p += F("</div>");
+            p += F("<form method=POST action=/api/wifi-connect class=wifiAct "
+                   "title='Connect now'>"
+                   "<input type=hidden name=idx value=");
+            p += i; p += F(">");
+            p += F("<button type=submit>Connect</button></form>");
+            p += F("<form method=POST action=/api/wifi-del class=wifiAct "
+                   "title='Delete' onsubmit=\"return confirm('Delete this saved network?')\">"
+                   "<input type=hidden name=idx value=");
+            p += i; p += F(">");
+            p += F("<button class=warn type=submit>&#10005;</button></form>");
+            p += F("</div>");
+        }
+        p += F("</div>");
+    }
+    p += F("</div>");
+
+    // ---- Visible networks card. Only shows scanned SSIDs that aren't
+    // already in the saved list, so the two columns don't duplicate.
+    int scanCount = netScanCount();
+    p += F("<div class=card><h2>Visible networks</h2>"
+           "<p style='color:#8aa;font-size:.85em;margin:.1em 0 .6em'>"
+           "Last scan result. ");
+    p += F("<form method=POST action=/api/wifi-rescan style='display:inline'>"
+           "<button type=submit class=infoBtn title='Rescan'>&#x21bb; Rescan</button>"
+           "</form></p>");
+    if (scanCount == 0) {
+        p += F("<p style='color:#8aa'>(no scan results yet)</p>");
+    } else {
+        // Build a quick set of saved SSIDs.
+        p += F("<div class=grid>");
+        int shown = 0;
+        for (int i = 0; i < scanCount; i++) {
+            const ScanResult *r = netScanResult(i);
+            if (!r || r->ssid.length() == 0) continue;
+            // Hide already-saved SSIDs.
+            bool inSaved = false;
+            for (int j = 0; j < saved; j++) {
+                if (r->ssid.equalsIgnoreCase(wifiNetworkSsid(j))) { inSaved = true; break; }
+            }
+            if (inSaved) continue;
+            shown++;
+            p += F("<div class=stationRow>");
+            p += F("<div class=station style='flex:1;cursor:default'>");
+            p += htmlEscape(r->ssid);
+            p += F("  <small>"); p += r->rssi; p += F(" dBm</small>");
+            if (r->encryption == WIFI_AUTH_OPEN) p += F("  <small>(open)</small>");
+            p += F("</div>");
+            p += F("<button type=button class=infoBtn "
+                   "onclick=\"openConnectAdhoc('");
+            p += htmlEscape(r->ssid);
+            p += F("',"); p += (r->encryption == WIFI_AUTH_OPEN ? "true" : "false");
+            p += F(")\">Connect</button>");
+            p += F("</div>");
+        }
+        if (shown == 0) {
+            p += F("<p style='color:#8aa'>(every visible network is already saved)</p>");
+        }
+        p += F("</div>");
+    }
+    p += F("</div>");
+
+    // ---- Add manually card.
+    p += F("<div class=card><h2>Add manually</h2>"
+           "<p style='color:#8aa;font-size:.85em;margin:.1em 0 .6em'>"
+           "Useful for hidden SSIDs. The credentials are saved without "
+           "an immediate connect attempt.</p>"
+           "<form method=POST action=/api/wifi-add>"
+           "<label>SSID <input name=ssid maxlength=32 required></label>"
+           "<label>Password <input name=pass type=password maxlength=64></label>"
+           "<button type=submit style='margin-top:.5em'>Save</button>"
+           "</form></div>");
+
+    // ---- Modal for ad-hoc connect (visible-network connect prompt).
+    p += F(
+      "<div id=modalBg onclick=\"closeAdhoc(event)\"></div>"
+      "<div id=modal>"
+      "<h2>Connect to <span id=adSsid></span></h2>"
+      "<form method=POST action=/api/wifi-connect-adhoc>"
+      "<input type=hidden name=ssid id=adSsidF>"
+      "<label>Password <input name=pass id=adPass type=password "
+      "placeholder='leave blank if open'></label>"
+      "<div class=row style='margin-top:.6em'>"
+      "<button type=submit>Connect</button>"
+      "<button type=button onclick=\"closeAdhoc()\">Cancel</button>"
+      "</div></form></div>");
+
+    p += F(
+      "<div id=loading style='display:none;position:fixed;inset:0;"
+      "background:rgba(0,0,0,.65);align-items:center;justify-content:center;"
+      "z-index:50'>"
+      "<div style='background:#141720;border:1px solid #2a2f3c;border-radius:8px;"
+      "padding:1.2em 1.6em;color:#e6e7ea;box-shadow:0 8px 32px rgba(0,0,0,.6)'>"
+      "<span id=loadingText>Working...</span></div></div>");
+
+    p += F(
+      "<script>"
+      "const LM=document.getElementById('loading');"
+      "const LT=document.getElementById('loadingText');"
+      "function showLoading(t){LT.textContent=t||'Working...';LM.style.display='flex'}"
+      "window.addEventListener('pageshow',()=>LM.style.display='none');"
+      "function openConnectAdhoc(ssid,isOpen){"
+      " adSsid.textContent=ssid;adSsidF.value=ssid;adPass.value='';"
+      " adPass.placeholder=isOpen?'leave blank for open':'password';"
+      " modal.classList.add('show');modalBg.classList.add('show');"
+      " setTimeout(()=>adPass.focus(),50);"
+      "}"
+      "function closeAdhoc(e){"
+      " if(e&&e.target&&e.target.id!=='modalBg')return;"
+      " modal.classList.remove('show');modalBg.classList.remove('show');"
+      "}"
+      // Reorder via drag-drop on saved list.
+      "(function(){"
+      "const list=document.getElementById('savedList');"
+      "if(!list)return;"
+      "let dragSrc=null;"
+      "list.querySelectorAll('.stationRow').forEach(row=>{"
+      " row.addEventListener('dragstart',e=>{"
+      "  dragSrc=row;row.classList.add('dragging');"
+      "  e.dataTransfer.effectAllowed='move';"
+      " });"
+      " row.addEventListener('dragend',()=>{row.classList.remove('dragging');"
+      "  list.querySelectorAll('.dropTarget').forEach(r=>r.classList.remove('dropTarget'));});"
+      " row.addEventListener('dragover',e=>{"
+      "  if(!dragSrc||dragSrc===row)return;"
+      "  e.preventDefault();e.dataTransfer.dropEffect='move';"
+      "  list.querySelectorAll('.dropTarget').forEach(r=>r.classList.remove('dropTarget'));"
+      "  row.classList.add('dropTarget');"
+      " });"
+      " row.addEventListener('drop',async e=>{"
+      "  e.preventDefault();"
+      "  if(!dragSrc||dragSrc===row)return;"
+      "  const from=parseInt(dragSrc.dataset.idx,10);"
+      "  const to=parseInt(row.dataset.idx,10);"
+      "  showLoading('Reordering...');"
+      "  const fd=new FormData();fd.append('from',from);fd.append('to',to);"
+      "  try{"
+      "   const r=await fetch('/api/wifi-move',{method:'POST',body:fd});"
+      "   if(!r.ok)throw new Error('HTTP '+r.status);"
+      "   location.href='/wifi';"
+      "  }catch(err){alert('Reorder failed: '+err.message);location.reload();}"
+      " });"
+      "});"
+      "})();"
+      "document.querySelectorAll('form').forEach(f=>f.addEventListener('submit',()=>{"
+      " if(f.action.endsWith('/api/wifi-connect')||"
+      "    f.action.endsWith('/api/wifi-connect-adhoc'))"
+      "  showLoading('Connecting (may interrupt audio for ~10 s)...');"
+      " else"
+      "  showLoading('Saving...');"
+      "}));"
+      "</script>");
+
+    p += pageFoot();
+    s_http.send(200, "text/html", p);
+}
+
+// POST /api/wifi-connect (idx=<saved index>) -- switch to that network.
+void handleWifiConnect() {
+    if (!s_http.hasArg("idx")) { s_http.send(400, "text/plain", "missing idx"); return; }
+    int idx = s_http.arg("idx").toInt();
+    if (idx < 0 || idx >= wifiNetworkCount()) {
+        s_http.send(400, "text/plain", "out of range"); return;
+    }
+    String ssid = wifiNetworkSsid(idx);
+    String pass = wifiNetworkPass(idx);
+    bool ok = netConnectAdhoc(ssid, pass, 12000);
+    if (ok) audioStartLast();
+    s_http.sendHeader("Location", "/wifi");
+    s_http.send(302);
+}
+
+// POST /api/wifi-connect-adhoc (ssid + pass) -- ad-hoc connect, save on success.
+void handleWifiConnectAdhoc() {
+    if (!s_http.hasArg("ssid")) { s_http.send(400, "text/plain", "missing ssid"); return; }
+    String ssid = s_http.arg("ssid"); ssid.trim();
+    String pass = s_http.arg("pass");
+    if (ssid.length() == 0) { s_http.send(400, "text/plain", "empty ssid"); return; }
+    bool ok = netConnectAdhoc(ssid, pass, 12000);
+    if (ok) {
+        wifiAddNetwork(ssid, pass);
+        audioStartLast();
+    }
+    s_http.sendHeader("Location", "/wifi");
+    s_http.send(302);
+}
+
+// POST /api/wifi-add (ssid + pass) -- save creds, no connect attempt.
+void handleWifiAdd() {
+    if (!s_http.hasArg("ssid")) { s_http.send(400, "text/plain", "missing ssid"); return; }
+    String ssid = s_http.arg("ssid"); ssid.trim();
+    String pass = s_http.arg("pass");
+    if (ssid.length() == 0) { s_http.send(400, "text/plain", "empty ssid"); return; }
+    wifiAddNetwork(ssid, pass);
+    s_http.sendHeader("Location", "/wifi");
+    s_http.send(302);
+}
+
+// POST /api/wifi-del (idx) -- remove a saved network.
+void handleWifiDel() {
+    if (!s_http.hasArg("idx")) { s_http.send(400, "text/plain", "missing idx"); return; }
+    int idx = s_http.arg("idx").toInt();
+    if (!wifiRemoveNetwork(idx)) { s_http.send(400, "text/plain", "out of range"); return; }
+    s_http.sendHeader("Location", "/wifi");
+    s_http.send(302);
+}
+
+// POST /api/wifi-move (from + to) -- reorder a saved network.
+void handleWifiMove() {
+    if (!s_http.hasArg("from") || !s_http.hasArg("to")) {
+        s_http.send(400, "text/plain", "missing from/to"); return;
+    }
+    int from = s_http.arg("from").toInt();
+    int to   = s_http.arg("to").toInt();
+    if (!wifiMoveNetwork(from, to)) {
+        s_http.send(400, "text/plain", "out of range"); return;
+    }
+    s_http.send(200, "text/plain", "ok");
+}
+
+// POST /api/wifi-rescan -- trigger a fresh scan, return to /wifi.
+void handleWifiRescan() {
+    netScanNow();
+    s_http.sendHeader("Location", "/wifi");
+    s_http.send(302);
+}
+
 void handleNotFound() { s_http.send(404, "text/plain", "not found"); }
 } // namespace
 
@@ -797,12 +1165,20 @@ void webBegin() {
     s_http.on("/api/station",       HTTP_POST, handleStation);
     s_http.on("/api/station-edit",  HTTP_POST, handleStationEdit);
     s_http.on("/api/station-del",   HTTP_POST, handleStationDel);
+    s_http.on("/api/station-move",  HTTP_POST, handleStationMove);
     s_http.on("/api/next",     HTTP_POST, handleNext);
     s_http.on("/api/prev",     HTTP_POST, handlePrev);
     s_http.on("/api/play",     HTTP_POST, handlePlay);
     s_http.on("/discover",     HTTP_GET,  handleDiscover);
     s_http.on("/api/listen",   HTTP_POST, handleListen);
     s_http.on("/api-docs",     HTTP_GET,  handleApiDocs);
+    s_http.on("/wifi",         HTTP_GET,  handleWifi);
+    s_http.on("/api/wifi-connect",       HTTP_POST, handleWifiConnect);
+    s_http.on("/api/wifi-connect-adhoc", HTTP_POST, handleWifiConnectAdhoc);
+    s_http.on("/api/wifi-add",           HTTP_POST, handleWifiAdd);
+    s_http.on("/api/wifi-del",           HTTP_POST, handleWifiDel);
+    s_http.on("/api/wifi-move",          HTTP_POST, handleWifiMove);
+    s_http.on("/api/wifi-rescan",        HTTP_POST, handleWifiRescan);
     s_http.on("/api/volume",   HTTP_POST, handleVolume);
     s_http.on("/api/eq",       HTTP_POST, handleEq);
     s_http.on("/api/reboot",   HTTP_POST, handleReboot);

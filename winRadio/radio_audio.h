@@ -39,6 +39,12 @@ const char *audioNowPlayingName();
 // ---- Playback control ----------------------------------------------------
 int  audioCurrentStation();       // 0-based index into stations module
 bool audioSelectStation(int idx); // true on success
+
+// Update the "currently playing slot" pointer without reconnecting.
+// Used by reorder / delete operations that change the index of the
+// already-playing entry; the stream stays up, only the bookkeeping
+// moves. Persists to NVS.
+void audioSetCurrentSlot(int idx);
 void audioNextStation();
 void audioPrevStation();
 

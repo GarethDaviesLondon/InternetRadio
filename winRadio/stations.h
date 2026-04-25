@@ -39,6 +39,11 @@ int         stationsAdd(const String &name, const String &url);
 // contiguous. Returns false if idx is out of range.
 bool        stationsDelete(int idx);
 
+// Reorder: move the entry at `from` to position `to`, shifting the
+// entries in between accordingly. Used by the web drag-drop UI.
+// Returns false if either index is out of range.
+bool        stationsMove(int from, int to);
+
 // Wipe everything and reseed from /stations.csv or the compiled defaults.
 void        stationsResetToDefaults();
 
