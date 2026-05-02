@@ -199,7 +199,7 @@ bool displayLoadThemeFromSd(const char *path) {
 void displayBegin() {
     s_bus = new Arduino_ESP32SPI(PIN_LCD_DC, PIN_LCD_CS,
                                  PIN_LCD_SCK, PIN_LCD_MOSI, -1);
-    s_gfx = new Arduino_ST7789(s_bus, PIN_LCD_RST, 0, true,
+    s_gfx = new Arduino_ST7789(s_bus, PIN_LCD_RST, DISPLAY_ROTATION, true,
                                DISPLAY_W, DISPLAY_H);
     s_gfx->begin();
     s_gfx->fillScreen(RGB565_BLACK);

@@ -31,6 +31,18 @@
 #define DISPLAY_W     240
 #define DISPLAY_H     240
 
+// Panel rotation passed to the Arduino_GFX driver.
+//   0 = native orientation (default)
+//   1 = 90 deg clockwise
+//   2 = 180 deg
+//   3 = 270 deg clockwise (= 90 deg counter-clockwise)
+// Override per-build via -DDISPLAY_ROTATION=N in platformio.ini.
+// Used by enclosure variants where the panel had to be mounted at
+// a different angle.
+#ifndef DISPLAY_ROTATION
+#define DISPLAY_ROTATION 0
+#endif
+
 // ---- Input: buttons (active-low) -----------------------------------------
 #define PIN_BTN_LEFT  0    // also used as deep-sleep wake
 #define PIN_BTN_MID   5
