@@ -1,0 +1,25 @@
+# PlatformIO build + deps
+.pio/
+.pioenvs/
+.piolibdeps/
+.pio_cache/
+
+# VS Code / PlatformIO IDE auto-generated files
+.vscode/
+.cache/
+compile_commands.json
+
+# Arduino IDE build cache
+build/
+*.elf
+*.bin.old
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor backups
+*.swp
+*.swo
+*~

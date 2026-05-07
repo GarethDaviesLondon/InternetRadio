@@ -1,413 +1,514 @@
-#include "Arduino.h"
-#include "WiFiMulti.h"
-#include "Audio.h"
-#include "SD_MMC.h"
-#include "FS.h"
-#include <Arduino_GFX_Library.h>
-#include <LovyanGFX.hpp> 
-#include "es8311.h"
-#include "esp_check.h"
-#include "Wire.h"
-#include "NotoSansBold15.h"
+// Waveshare Internet Radio -- main orchestrator.
+// All real work lives in the modules; this file is just setup() + loop()
+// glue. See README.md for the module map.
 
-#define PA_CTRL 7
-#define I2S_MCLK 8
-#define I2S_BCLK 9
-#define I2S_DOUT 12
-#define I2S_LRC 10
+#include <Arduino.h>
+#include <Wire.h>
 
-#define I2C_SDA 42
-#define I2C_SCL 41
+#include "config.h"
+#include "storage.h"
+#include "net.h"
+#include "radio_audio.h"
+#include "stations.h"
+#include "display.h"
+#include "input.h"
+#include "power.h"
+#include "cli.h"
+#include "web.h"
+#include "provision.h"
+#include "clock.h"
+#include "imu.h"
 
-#define EXAMPLE_SAMPLE_RATE (16000)
-#define EXAMPLE_MCLK_MULTIPLE (256)  // If not using 24-bit data width, 256 should be enough
-#define EXAMPLE_MCLK_FREQ_HZ (EXAMPLE_SAMPLE_RATE * EXAMPLE_MCLK_MULTIPLE)
-#define EXAMPLE_VOICE_VOLUME (75)
+// --- WiFi connect UX ------------------------------------------------------
 
-LGFX_Sprite sprite; 
-LGFX_Sprite sprite2; 
+// bootTick: runs once per iteration of every blocking wait in setup().
+// Handles the things the user expects to always work, even before we've
+// joined a network: backlight dim, L+R reboot combo, clean Left-press
+// deep sleep, and the serial CLI (so the user can type `sleep`, `reboot`,
+// `wifi add`, etc. during any boot-time blocking wait). Called from every
+// setup()-phase busy loop.
+static void bootTick() {
+    displayBacklightTick();
+    cliPoll();
+    provisionPoll();   // services the background AP portal if it's running
+    if (inputRebootCombo(3000)) {
+        displayShowMessage("Rebooting...");
+        delay(500);
+        ESP.restart();
+    }
+    InputEvent ev = inputPoll();
+    if (ev != INPUT_NONE) displayNoteActivity();
+    if (ev == INPUT_SLEEP) powerDeepSleep();   // doesn't return
+    // NEXT / VOL events are ignored during boot: audio isn't running yet.
 
-String curStation="";
-String songPlaying="";
-long bitrate=0;
-bool connected=false;
-int songposition=-220;
-float voltage=4.20;
-int batLevel=0;
-
-Audio audio;
-WiFiMulti wifiMulti;
-String ssid = "xxxxxxxxx";    // ################### DONT FORGET EDIT THIS
-String password = "xxxxxxxxxx";
-
-bool canDraw=0;
-bool deb=0;
-bool deb2=0;
-int rssi=0;
-
-int clk = 16;
-int cmd = 15;
-int d0 = 17;
-int d1 = 18;
-int d2 = 13;
-int d3 = 14;
-
-
-int chosen=0; //current station
-int volume=2;
-String letters[3]={"P","S","V"};
-
-unsigned short grays[18];
-unsigned short gray;
-unsigned short light;
-
-int g[14]={0};  //graph
-
-#define ns 6 //number of stations max 9
-
-String stations[ns]={
-                "https://discodiamond.radioca.st/autodj",
-                "https://listen.radioking.com/radio/175279/stream/216784",
-                "http://sc6.radiocaroline.net:8040/stream",
-                "https://club-high.rautemusik.fm/;",
-                "http://greece-media.monroe.edu/wgmc.mp3",
-                 "https://audio.radio-banovina.hr:9998/;"
-                 };
-
-
-#define GFX_BL 46
-Arduino_DataBus* bus = new Arduino_ESP32SPI(45 /* DC */, 21 /* CS */, 38 /* SCK */, 39 /* MOSI */, -1 /* MISO */);
-Arduino_GFX* gfx = new Arduino_ST7789(
-bus, 40 /* RST */, 0 /* rotation */, true, 240, 240);                
-
-static esp_err_t es8311_codec_init(void) {
-
-  es8311_handle_t es_handle = es8311_create(I2C_NUM_0, ES8311_ADDRRES_0);
-  ESP_RETURN_ON_FALSE(es_handle, ESP_FAIL, TAG, "es8311 create failed");
-  const es8311_clock_config_t es_clk = {
-    .mclk_inverted = false,
-    .sclk_inverted = false,
-    .mclk_from_mclk_pin = true,
-    .mclk_frequency = EXAMPLE_MCLK_FREQ_HZ,
-    .sample_frequency = EXAMPLE_SAMPLE_RATE
-  };
-
-  ESP_ERROR_CHECK(es8311_init(es_handle, &es_clk, ES8311_RESOLUTION_16, ES8311_RESOLUTION_16));
-  ESP_RETURN_ON_ERROR(es8311_sample_frequency_config(es_handle, EXAMPLE_SAMPLE_RATE * EXAMPLE_MCLK_MULTIPLE, EXAMPLE_SAMPLE_RATE), TAG, "set es8311 sample frequency failed");
-  ESP_RETURN_ON_ERROR(es8311_voice_volume_set(es_handle, EXAMPLE_VOICE_VOLUME, NULL), TAG, "set es8311 volume failed");
-  ESP_RETURN_ON_ERROR(es8311_microphone_config(es_handle, false), TAG, "set es8311 microphone failed");
-
-  return ESP_OK;
+    // Edge-triggered button diagnostic. Silent while nothing changes;
+    // prints one line each time any of L/M/R transitions. Lets the user
+    // confirm the GPIOs are actually seeing presses without flooding the
+    // serial log at idle.
+    static uint8_t lastMask = 0xff;
+    uint8_t mask = (inputLeftHeld()  ? 1 : 0)
+                 | (inputMidHeld()   ? 2 : 0)
+                 | (inputRightHeld() ? 4 : 0);
+    if (mask != lastMask) {
+        lastMask = mask;
+        Serial.printf("boot: L=%d M=%d R=%d\r\n",
+                      (mask & 1) ? 1 : 0,
+                      (mask & 2) ? 1 : 0,
+                      (mask & 4) ? 1 : 0);
+    }
 }
 
+// Sticky flag: latched by the portal abort callback, cleared once the
+// boot loop reads it. Lets the post-netConnect code distinguish
+// "user clicked abort on the portal -> just retry the saved list"
+// from "we genuinely walked everything and need setup mode".
+static bool s_abortViaPortal = false;
+
+// Abort callback passed to netConnect(): triggers when EITHER the
+// right button (V) is held OR the user clicked "Abort current
+// attempt" on the background AP portal. bootTick is called here too
+// so sleep / reboot / dim / portal HTTP keep working while we're
+// trying each saved network.
+static bool netAbortOnRightButton() {
+    bootTick();
+    if (provisionAbortRequested()) {
+        provisionClearAbort();
+        s_abortViaPortal = true;
+        Serial.println("boot: abort requested via AP portal");
+        return true;
+    }
+    return inputRightHeld();
+}
+
+// When did we start showing the boot splash? The progress callback uses
+// it to pick between the big splash (first ~10 s) and the compact scan +
+// commentary view once the splash has run its course.
+static uint32_t s_bootSplashStartMs = 0;
+constexpr uint32_t kBootSplashMs = 10000;
+
+// Progress callback: repaint the appropriate boot-time view as each saved
+// slot is tried. While the splash window is still open the commentary
+// replaces the splash's status line; afterwards we switch to the compact
+// logo + scan + commentary layout.
+static void netProgressUi(int slot, int total, const char *ssid) {
+    if (millis() - s_bootSplashStartMs < kBootSplashMs) {
+        String line = String("Trying ") + slot + "/" + total + ": " + (ssid ? ssid : "");
+        displayShowBootSplash(line.c_str());
+    } else {
+        displayShowCompactConnect(ssid, slot, total, "Hold [V] = setup");
+    }
+}
+
+// Busy-wait for the configured duration, returning early with `true` if
+// the right button (V) gets pressed at any point.
+static bool waitOrSetupButton(uint32_t durationMs) {
+    uint32_t t0 = millis();
+    while (millis() - t0 < durationMs) {
+        bootTick();
+        if (inputRightHeld()) return true;
+        delay(20);
+    }
+    return false;
+}
+
+// Block in setup-mode until at least one new saved network appears. The
+// AP/captive-portal implementation in commit 3 will plug in alongside the
+// CLI path so the same "a network was added" exit covers both routes.
+static void runWifiSetup() {
+    provisionStart();
+    String apIp = provisionApIp();
+    displayShowSetupMode(PROVISION_AP_SSID,
+                         apIp.length() ? apIp.c_str() : "192.168.4.1");
+    cliWaitForNewNetwork(bootTick);  // keeps sleep / reboot / dim alive
+    provisionStop();
+}
 
 void setup() {
+    // Serial CLI on USB-CDC. Baud is virtualised; PuTTY's setting is cosmetic.
+    Serial.begin(9600);
+    {
+        unsigned long t0 = millis();
+        while (!Serial && millis() - t0 < 1500) delay(10);
+    }
+    cliBegin();
 
-  Serial.begin(115200);
-  Wire.begin(I2C_SDA, I2C_SCL);
-  gpio_hold_dis((gpio_num_t)2);
-  pinMode(0, INPUT_PULLUP); // left na GPIO0
-  pinMode(5, INPUT_PULLUP); // mid button
-  pinMode(4, INPUT_PULLUP); // right button
+    wifiLoadNetworks();
+    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+    inputBegin();
+    powerBegin();
+    imuBegin();   // accel + gyro for motion-wake and face-down-pause
 
-  // batt enable
-  pinMode(2,OUTPUT);
-  digitalWrite(2,HIGH);
+    // SD card is optional. If it mounts, /theme.ini and (on first boot)
+    // /stations.csv feed the station list; otherwise silently continue.
+    storageSdMount();
+    // Load the active station list (NVS on later boots, SD CSV or
+    // compiled defaults on first boot).
+    stationsBegin();
 
-  pinMode(PA_CTRL, OUTPUT);
-  digitalWrite(PA_CTRL, HIGH);
-  es8311_codec_init();
-  gpio_hold_en((gpio_num_t)2);
+    audioCodecInit();
+    audioPlayMorseR();   // dot-dash-dot self-test before Audio lib grabs I2S 0
+    audioRestoreSession();   // read last volume + station from NVS
 
-  gfx->begin();
-  gfx->fillScreen(RGB565_BLACK);
+    displayBegin();
+    if (storageSdMounted()) displayLoadThemeFromSd();
 
-  analogWrite(GFX_BL,110);   //SCREEN BRIGHTNESS 0-255
+    // 10 s boot splash -- always held for the full window so the user
+    // has something to look at even if connect happens instantly. The
+    // splash status updates as each slot is tried (via netProgressUi).
+    s_bootSplashStartMs = millis();
+    displayShowBootSplash("Starting up...");
 
-  gfx->setCursor(2, 20);
-  gfx->setTextSize(2);
-  gfx->setTextColor(RGB565_GREEN);
-  gfx->println("connecting to WI-FI");
+    netBegin();
+    netScanNow();
+    displayShowBootSplash("Scan done. Connecting...");
 
-  sprite.setColorDepth(16);     // RGB565
-  sprite.createSprite(240, 240); 
-  sprite2.createSprite(230, 16); 
-  
-  sprite.loadFont(NotoSansBold15);
-
-     int co = 214;
-    for (int i = 0; i < 18; i++) {
-    grays[i] = sprite.color565(co, co, co+40);
-    co = co - 13;
+    // Quick right-button check: setup-request during the splash still
+    // works so a user who knows they need to reconfigure doesn't have
+    // to wait the 10 s out.
+    bool setupRequested = false;
+    uint32_t t0 = millis();
+    while (!setupRequested && millis() - t0 < 500) {
+        if (inputRightHeld()) { setupRequested = true; break; }
+        delay(20);
+    }
+    if (setupRequested || !wifiHasNetworks()) {
+        runWifiSetup();
     }
 
-  sprite2.setTextColor(grays[0],TFT_BLACK);
-
-  WiFi.mode(WIFI_STA);
-  wifiMulti.addAP(ssid.c_str(), password.c_str());
-  wifiMulti.run();
-  if (WiFi.status() != WL_CONNECTED) {
-    WiFi.disconnect(true);
-    wifiMulti.run(); 
-  }
-
-  audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, I2S_MCLK);
-  audio.setVolume(volume*4); // 0...21
-  audio.connecttohost(stations[0].c_str());
-}
-
-void draw2()
-{
-
-sprite.drawString("Hello",20,20,2);
-
-gray=grays[16];
-        light=grays[12];
-        sprite.fillRect(0,0,240,240,gray);
-        
-        //stations frame
-        sprite.fillRect(4,20,150,172,BLACK);
-        sprite.drawRect(4,20,150,172,light);
-
-        // time and grapg frame
-        sprite.fillRect(160,20,74,60,BLACK);
-        sprite.drawRect(160,20,74,60,light);
-        sprite.fillRect(174,24,5,10,TFT_RED);
-        sprite.fillRect(174,37,5,10,TFT_GREEN);
-       
-
-        //battery
-          sprite.drawRect(210,36,17,10,TFT_GREEN);
-          sprite.fillRect(212,38,batLevel,6,TFT_GREEN); //bat lvl
-          sprite.fillRect(227,39,2,4,TFT_GREEN);
-
-        //bitrate
-        sprite.fillRect(160,176,74,16,BLACK);
-        sprite.drawRect(160,176,74,16,light);
-
-           //volume bar
-        sprite.fillRoundRect(160,140,74,3,2,YELLOW);
-        sprite.fillRoundRect(146+(volume*15),137,14,8,2,grays[2]);
-        sprite.fillRoundRect(149+(volume*15),139,8,4,2,grays[10]);
-
-         //songplaying frame
-        sprite.fillRect(4,212,232,18,BLACK);
-        sprite.drawRect(4,212,232,18,light);
-
-        sprite.fillRect(149,20,5,172,grays[11]);
-
-        int sliderPos=12;
-        sprite.fillRect(149,sliderPos+8,5,20,grays[2]);
-        sprite.fillRect(151,sliderPos+12,1,12,grays[16]);
-
-        sprite.fillRect(4,7,150,3,ORANGE);
-       
-        sprite.fillRect(190,5,45,3,ORANGE);
-        sprite.fillRect(160,194,74,1,ORANGE);
-        sprite.fillRect(190,11,45,3,grays[6]);
-        
-       
-
-        //frame top and bot
-        sprite.drawRect(0,0,239,239,light);
-        sprite.fillRect(5,234,230,2,grays[13]);
-        
-
-       sprite.setTextColor(grays[1],gray);
-       sprite.drawString(" STATIONS ",42,2,2);
-       sprite.drawString("WEB",160,2,2);
-
-        //station list
-        for(int i=0;i<ns;i++)
-        {
-        if(i==chosen) sprite.setTextColor(TFT_GREEN,TFT_BLACK); else  sprite.setTextColor(TFT_DARKGREEN,TFT_BLACK);
-        sprite.drawString(stations[i].substring(0,20),10,26+(i*19),2);
+    // Background AP: while we try each saved network, the provisioning
+    // portal is reachable too, so the user can jump straight to setup
+    // without waiting out every 8 s connect timeout. Save via the portal
+    // auto-reboots, so there's no reconcile logic here -- the reboot
+    // naturally resumes with the newly-saved network in the list.
+    provisionStartBackground();
+    while (!netConnect(netAbortOnRightButton, netProgressUi)) {
+        // Distinguish "user clicked abort on portal" from "exhausted
+        // the list". The portal-abort case keeps the AP up and just
+        // retries netConnect (the user has already reordered or added
+        // an entry); the exhausted case drops into setup mode where
+        // they can fix things.
+        if (s_abortViaPortal) {
+            s_abortViaPortal = false;
+            displayShowMessage("Aborted.", "Retrying", "saved networks...");
+            delay(600);
+            continue;
         }
+        displayShowMessage("No network", "connected.",
+                           "Entering setup...");
+        delay(800);
+        // Setup mode uses AP-only (tears down the idle STA) for focus.
+        provisionStop();
+        runWifiSetup();
+        provisionStartBackground();   // background AP up again for next loop
+    }
+    provisionStop();   // associated: AP no longer needed
 
-        sprite.setTextColor(grays[0],gray);
-        sprite.drawString("INTERNET",160,86); 
-        sprite.setTextColor(TFT_RED,gray);
-        sprite.drawString("RADIO",160,102); 
+    // If we joined inside the 10 s splash window, stay on the splash
+    // for the remainder so the boot brand gets its full showing.
+    displayShowBootSplash("Connected. Starting audio...");
+    while (millis() - s_bootSplashStartMs < kBootSplashMs) {
+        bootTick();
+        delay(50);
+    }
 
-        sprite.setTextColor(grays[6],gray);
-        sprite.drawString("SONG PLAYING",6,200,1); 
-        sprite.drawString("VOLUME",160,124,1);
-         sprite.setTextColor(grays[10],TFT_BLACK); 
-         sprite.drawString("W",165,24,1); 
-         sprite.drawString("I",165,34,1); 
-         sprite.drawString("F",165,44,1); 
-         sprite.drawString("I",165,54,1); 
-         sprite.setTextColor(TFT_GREEN,TFT_BLACK); 
-         sprite.drawString("BITRATE "+String(bitrate),164,180,1); 
-         sprite.drawString("RSSI:"+String(rssi),183,24,1); 
-          sprite.drawString(String(voltage),183,37,1); 
-         
-         sprite.setTextColor(grays[11],gray); 
-         sprite.drawString("VOLOS PROJECTS 2026",122,200,1); 
+    clockBegin();        // kicks off SNTP now that STA is up
 
-        //graph
-        
-        for(int i=0;i<12;i++){  
-        if(connected)
-        g[i]=random(1,5);
-        for(int j=0;j<g[i];j++)
-        sprite.fillRect(172+(i*5),71-j*4,4,3,grays[4]);
+    audioBegin();
+    audioStartLast();    // resumes the remembered station
+
+    webBegin();          // main-mode web UI (uses the STA interface)
+
+    // Boot-time captive-portal probe. If the freshly-joined network
+    // is intercepting HTTP, surface the situation on the LCD instead
+    // of letting the radio sit silently with audio that won't start.
+    // Also bring the SoftAP portal back up so the user has a control
+    // surface (abort, switch SSID, reorder) while we wait for the
+    // captive login -- otherwise they'd be stuck with whatever
+    // network the radio chose without any way to redirect it.
+    if (netConnected()) {
+        CaptiveStatus cs = netCheckCaptive();
+        Serial.printf("captive: boot probe -> %s\r\n", netCaptiveStatusName(cs));
+        if (cs == CAPTIVE_PORTAL) {
+            String ssid = netCurrentSsid();
+            displayCaptiveOpen(ssid.c_str(), netCaptivePortalUrl());
+            provisionStartBackground();
         }
-   
+    }
 
-        sprite.setTextColor(grays[16],grays[5]);
-        //butons
-        for(int i=0;i<3;i++)
-        {
-          sprite.fillRoundRect(160+(i*26),152,22,18,4,grays[5]);
-          sprite.drawString(letters[i],166+(i*26),154); 
-        }
-
-   
-
-uint16_t *buf = (uint16_t*)sprite.getBuffer();
-int total = 240 * 240;
-
-for (int i = 0; i < total; i++) {
-    buf[i] = __builtin_bswap16(buf[i]);
-}
-
-gfx->draw16bitRGBBitmap(0, 0, buf, 240, 240);
-
-canDraw=0;
-draw3();
-}
-
-
-
-
-void draw3()
-{
-     songposition--;
-     if(songposition<-220) songposition=220;
-     sprite2.fillSprite(TFT_BLACK);  
-     sprite2.drawString(songPlaying,songposition,5);  
-
-    uint16_t *buf2 = (uint16_t*)sprite2.getBuffer();
-    int total2 = 230 * 16;
-
-   for (int i = 0; i < total2; i++) {
-    buf2[i] = __builtin_bswap16(buf2[i]);
-   }
-
-   gfx->draw16bitRGBBitmap(5, 213, buf2, 230, 16);
-}
-
-void measureBatt()
-{
-    uint16_t mv = analogReadMilliVolts(1);  // mV na ADC pinu
-    float vbat = (mv / 1000.0) * 3.0;             // stvarni napon baterije
-
-    voltage = vbat;
-    char vol_buffer[8];
-    sprintf(vol_buffer, "%.2f", voltage);
-
-    // izračun postotka baterije (Li-ion)
-    float minV = 3.0;
-    float maxV = 4.2;
-
-    float pct = (vbat - minV) / (maxV - minV);
-    pct = constrain(pct, 0.0, 1.0);
-
-    batLevel = pct * 13.0;
+    displayRequestRepaint();
 }
 
 void loop() {
+    static unsigned long lastSlow  = 0;
+    static unsigned long lastSlide = 0;
 
+    // Slow-tick state refresh: ~4 Hz. Battery, RSSI, repaint trigger.
+    if (millis() - lastSlow > 240) {
+        lastSlow = millis();
+        powerSampleBattery();
+        displayRequestRepaint();
+    }
 
+    // Captive-portal background probe. Re-checks every 15 s while a
+    // captive screen is up; if the portal lets us through, audio is
+    // resumed and the screen returns to Now Playing.
+    static unsigned long lastCaptiveProbe = 0;
+    if (displayActiveMode() == DM_CAPTIVE &&
+        millis() - lastCaptiveProbe > 15000) {
+        lastCaptiveProbe = millis();
+        if (netCheckCaptive() == CAPTIVE_ONLINE) {
+            Serial.println("captive: portal cleared; resuming audio");
+            audioStartLast();
+            displayCaptiveDismiss();
+            displayRequestRepaint();
+            // The portal kept the SoftAP up as a fallback control
+            // surface; with internet flowing again it's no longer
+            // needed and can be torn down.
+            if (provisionActive()) provisionStop();
+        }
+    }
 
-  //measure signal strength
-  static unsigned long lastRSSI = 0;
-   static unsigned long lastSlide = 0;
+    // Smooth song-title scroll: ~33 Hz.
+    if (millis() - lastSlide > 30) {
+        lastSlide = millis();
+        displayDrawScroll();
+    }
 
-if (millis() - lastRSSI > 240) {   // every 240 ms
-    lastRSSI = millis();
-    rssi = WiFi.RSSI();  // očitaj jačinu signala
-    measureBatt();
-    canDraw=1;
+    // Soft-reboot combo: Left + Right held for 3 s. Needed because the
+    // radio has an internal battery, so a power-cycle isn't instant.
+    if (inputRebootCombo(3000)) {
+        displayShowMessage("Rebooting...");
+        delay(500);
+        ESP.restart();
+    }
 
-    if (WiFi.status() == WL_CONNECTED)
-    {connected=true;}
-    else
-    {connected=false;
-    songPlaying="WIFI NOT CONNECTED";}
+    // Buttons. Any user event counts as activity for the backlight dimmer.
+    InputEvent ev = inputPoll();
+    if (ev != INPUT_NONE) displayNoteActivity();
+
+    // System-info screen: any short press exits back to the prior mode.
+    // Long-presses (sleep, picker-open) still pass through.
+    if (displayActiveMode() == DM_SYS_INFO) {
+        switch (ev) {
+            case INPUT_SYS_INFO:
+                // Long-press Right while in sysinfo -> open the on-device
+                // WiFi picker. The picker triggers a fresh scan.
+                displayWifiPickerOpen();
+                ev = INPUT_NONE;
+                displayRequestRepaint();
+                break;
+            case INPUT_NEXT:
+            case INPUT_VOL_UP:
+            case INPUT_MODE_TOGGLE:
+            case INPUT_PLAY_PAUSE:
+                displayModalClose();   // restores prior mode
+                ev = INPUT_NONE;
+                displayRequestRepaint();
+                break;
+            default: break;
+        }
+    }
+    // Station picker:
+    //   Right short      = cursor forward (next)
+    //   Mid short        = cursor backward (prev)
+    //   Mid double-click = select
+    //   Mid long-press   = select (was: open picker, but already here)
+    //   Right long-press = select (was: open sysinfo, ditto)
+    //   Left short       = exit (cancel)
+    else if (displayActiveMode() == DM_PICKER) {
+        switch (ev) {
+            case INPUT_VOL_UP:         // right short -- forward
+                displayPickerAdvance();
+                ev = INPUT_NONE;
+                break;
+            case INPUT_NEXT:           // mid short -- backward
+                displayPickerRetreat();
+                ev = INPUT_NONE;
+                break;
+            case INPUT_PICKER_SELECT:  // mid double-click
+            case INPUT_PICKER_OPEN:    // mid long-press (already in picker)
+            case INPUT_SYS_INFO:       // right long-press (already in picker)
+            {
+                int slot = displayPickerSelectedSlot();
+                if (slot >= 0) audioSelectStation(slot);
+                displayModalClose();
+                displayRequestRepaint();
+                ev = INPUT_NONE;
+                break;
+            }
+            case INPUT_MODE_TOGGLE:    // left short
+                displayModalClose();
+                displayRequestRepaint();
+                ev = INPUT_NONE;
+                break;
+            default: break;
+        }
+    }
+    // WiFi picker: Mid short advances cursor, Mid double-click triggers
+    // a connect, Left/Right short cancels.
+    else if (displayActiveMode() == DM_WIFI_PICKER) {
+        switch (ev) {
+            case INPUT_NEXT:
+                displayWifiPickerAdvance();
+                ev = INPUT_NONE;
+                break;
+            case INPUT_PICKER_SELECT:
+            {
+                int idx = displayWifiPickerSelected();
+                if (idx >= 0) {
+                    const char *ssid = displayWifiPickerSsidAt(idx);
+                    // Look up stored creds; empty string if none.
+                    String pass;
+                    int n = wifiNetworkCount();
+                    for (int i = 0; i < n; i++) {
+                        if (String(ssid).equalsIgnoreCase(wifiNetworkSsid(i))) {
+                            pass = wifiNetworkPass(i);
+                            break;
+                        }
+                    }
+                    displayWifiConnectShow(ssid);
+                    displayDrawMain();   // draw the connecting screen now
+                    bool ok = netConnectAdhoc(String(ssid), pass, 12000,
+                                              displayWifiConnectTick);
+                    if (ok) {
+                        // Persist new SSID -> creds. wifiAddNetwork
+                        // updates in-place when SSID matches an
+                        // existing slot.
+                        wifiAddNetwork(String(ssid), pass);
+                        // Promote to slot 0: the user explicitly
+                        // picked this network NOW, so the next boot
+                        // should try it first. Find the slot the
+                        // SSID landed in and bump it to the top.
+                        for (int i = 0; i < wifiNetworkCount(); i++) {
+                            if (String(ssid).equalsIgnoreCase(wifiNetworkSsid(i))) {
+                                wifiPromoteNetwork(i);
+                                break;
+                            }
+                        }
+                        // Probe for a captive portal before kicking
+                        // off audio. If we're behind one, drop into
+                        // the captive screen instead of trying to
+                        // connect a stream that will just 30x.
+                        CaptiveStatus cs = netCheckCaptive();
+                        if (cs == CAPTIVE_PORTAL) {
+                            displayCaptiveOpen(ssid, netCaptivePortalUrl());
+                            // Bring the SoftAP back up so the user has
+                            // a control surface (abort, switch SSID,
+                            // reorder) while waiting for the captive
+                            // login to clear.
+                            if (!provisionActive()) provisionStartBackground();
+                        } else {
+                            audioStartLast();
+                        }
+                    } else {
+                        displayWifiConnectFail(
+                            pass.length() ? "Saved password failed."
+                                          : "Open auth failed.");
+                        displayDrawMain();
+                        delay(1500);
+                    }
+                    displayWifiConnectDone(ok);
+                    displayRequestRepaint();
+                }
+                ev = INPUT_NONE;
+                break;
+            }
+            case INPUT_MODE_TOGGLE:
+            case INPUT_VOL_UP:
+                displayModalClose();
+                displayRequestRepaint();
+                ev = INPUT_NONE;
+                break;
+            default: break;
+        }
+    }
+    // Connect screen is purely informational; eat all short input so a
+    // bouncing button doesn't cancel mid-connect.
+    else if (displayActiveMode() == DM_WIFI_CONNECT) {
+        if (ev != INPUT_SLEEP) ev = INPUT_NONE;
+    }
+    // Station details: any short press returns to NP. Long-presses
+    // (sleep, sysinfo, picker) still pass through.
+    else if (displayActiveMode() == DM_STATION_DETAIL) {
+        switch (ev) {
+            case INPUT_NEXT:
+            case INPUT_VOL_UP:
+            case INPUT_MODE_TOGGLE:
+            case INPUT_PLAY_PAUSE:
+            case INPUT_PICKER_SELECT:
+                displayModalClose();
+                displayRequestRepaint();
+                ev = INPUT_NONE;
+                break;
+            default: break;
+        }
+    }
+    // Captive-portal screen: Left short dismisses (background probe
+    // continues retrying every 15 s and will reopen if still blocked).
+    // Other inputs pass through so the user can still toggle modes.
+    else if (displayActiveMode() == DM_CAPTIVE) {
+        if (ev == INPUT_MODE_TOGGLE) {
+            displayCaptiveDismiss();
+            displayRequestRepaint();
+            ev = INPUT_NONE;
+        }
+    }
+
+    switch (ev) {
+        case INPUT_NEXT:        audioNextStation(); displayRequestRepaint(); break;
+        case INPUT_PREV:        audioPrevStation(); displayRequestRepaint(); break;
+        case INPUT_VOL_UP:      audioSetVolume((audioVolume() % 5) + 1);
+                                displayRequestRepaint(); break;
+        case INPUT_VOL_DOWN:    audioSetVolume(audioVolume() - 1);
+                                displayRequestRepaint(); break;
+        case INPUT_MODE_TOGGLE: displayToggleMode(); break;
+        case INPUT_PLAY_PAUSE:
+            // Left double-click. In Now Playing, open the station-detail
+            // screen (URL, ICY, bitrate). In other home modes, fall back
+            // to the original play/pause shortcut.
+            if (displayActiveMode() == DM_NOW_PLAYING) {
+                displayStationDetailOpen();
+                displayRequestRepaint();
+            } else {
+                audioTogglePause();
+                displayRequestRepaint();
+            }
+            break;
+        case INPUT_SLEEP:       powerDeepSleep(); break;
+        case INPUT_PICKER_OPEN: displayPickerOpen(); displayRequestRepaint(); break;
+        case INPUT_SYS_INFO:    displaySysInfoOpen();
+                                displayRequestRepaint(); break;
+        default: break;
+    }
+
+    // IMU: motion wakes the screen; face-down / face-up toggles pause
+    // automatically so you can silence the radio by laying it face-
+    // down on the table, and it resumes when you pick it up.
+    imuLoop();
+    if (imuMotionEvent()) displayNoteActivity();
+    static bool s_imuPausedByFaceDown = false;
+    if (imuFaceDownEvent()) {
+        if (!audioIsPaused()) {
+            audioTogglePause();
+            s_imuPausedByFaceDown = true;
+            displayRequestRepaint();
+        }
+    }
+    if (imuFaceUpEvent()) {
+        if (s_imuPausedByFaceDown && audioIsPaused()) {
+            audioTogglePause();
+            displayRequestRepaint();
+        }
+        s_imuPausedByFaceDown = false;
+        displayNoteActivity();
+    }
+
+    cliPoll();
+    webPoll();
+
+    vTaskDelay(1);
+    audioLoop();
+
+    displayBacklightTick();
+    if (displayRepaintPending()) displayDrawMain();
 }
-
-if (millis() - lastSlide > 30) {   // svakih 1 sekundu
-    lastSlide = millis();
-    draw3();
-}
-
-
-  if (digitalRead(5) == LOW) {
-  if(deb==0)
-      {
-        deb=1;
-        chosen++;
-        if(chosen==ns) chosen=0;
-        audio.connecttohost(stations[chosen].c_str());
-        canDraw=1;
-      }
-  }else deb=0;
-
-
-    if (digitalRead(4) == LOW) {
-  if(deb2==0)
-      {
-        deb2=1;
-        volume++;
-        if(volume==6) volume=1;
-        audio.setVolume(volume*4);
-        canDraw=1;
-      }
-  }else deb2=0;
-  
-    if (digitalRead(0) == LOW) {
-    esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0); // probudi se kad gumb opet bude LOW
-    digitalWrite(PA_CTRL, LOW);
-    delay(200);
-    esp_deep_sleep_start();
-  }
-
-  vTaskDelay(1);
-  audio.loop();
-
-   if(canDraw)
-   draw2();
-
-}
-
-// optional
-void audio_info(const char *info) {
-  Serial.print("info        ");
-  Serial.println(info);
-}
-void audio_id3data(const char *info) {  //id3 metadata
-  Serial.print("id3data     ");
-  Serial.println(info);
-}
-
-void audio_showstation(const char *info) {
-  Serial.print("station     ");
-  curStation=info;
-  canDraw=true;
-}
-void audio_showstreamtitle(const char *info) {
-  Serial.print("streamtitle ");
-  Serial.println(info);
-  songPlaying=info;
-  canDraw=1;
-}
-void audio_bitrate(const char *info) {
-  Serial.print("bitrate     ");
-  Serial.println(info);
-  bitrate=(String(info).toInt()/1000);
-  
-}
-
-

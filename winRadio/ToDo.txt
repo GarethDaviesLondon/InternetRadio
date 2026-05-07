@@ -1,0 +1,1214 @@
+ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
+
+
+== Changes made in this round (8-5-2026) ========================================
+
+Sensitivity + control polish
+  1. IMU face-down pause was firing accidentally when the unit was
+     just lying face-up or being handled. Tuned the classifier to
+     be much more selective about entering pause, much more
+     willing to leave it:
+       enter face-down: Az > 0.92 g held 1000 ms (was 0.85 / 500)
+       leave face-down: Az < 0.55 g held  200 ms (was 0.70 / 300)
+     The user has to deliberately set the unit screen-down and
+     leave it for a full second before audio pauses; any flick of
+     motion past ~57 deg off horizontal resumes immediately.
+  2. Controls card now has TWO explicit buttons: Play and Pause,
+     each disabled when not applicable (so the meaning is
+     unambiguous regardless of state). Both POST /api/play.
+     Picks up the slack when the IMU resume is laggy or the user
+     just wants a clean web button.
+
+Home page redesign
+  3. Stations card moved to the very top of the home page (it's
+     the most-used control on a typical visit).
+  4. Banner now shows the live time. Server renders the initial
+     HH:MM:SS into a <span class=bannerClock>; a tiny script in
+     pageFoot() ticks it once a second using the local browser
+     clock so the display stays current without polling.
+  5. Old dedicated Clock card is gone -- date is no longer
+     surfaced (was rarely used; banner shows time which is what
+     matters).
+  6. Timezone control moved out of the Clock card into a modal
+     pop-up triggered by a "Set timezone..." button in the System
+     card. Same POST /api/timezone endpoint; preset dropdown +
+     POSIX TZ free-text field unchanged.
+  7. Modal CSS extended via [id$=Modal] / [id$=ModalBg] attribute
+     selectors so all modals (station-edit, wifi-adhoc-connect,
+     set-timezone, ...) share positioning + style without
+     individual rules.
+
+== Changes made in this round (7-5-2026 -- captive AP fallback) ================
+
+Captive portal stranding fix
+  1. Reported: when the radio joined a captive network and got
+     stuck on the DM_CAPTIVE screen, the SoftAP was no longer
+     broadcasting -- so there was no way for the user to switch to
+     a different SSID without rebooting.
+  2. Cause: provisionStop() ran as soon as netConnect() succeeded
+     (before the captive probe), tearing the AP down. The user was
+     then trapped between an unauthenticated captive network and
+     no fallback control surface.
+  3. Fix: in every place where we open the DM_CAPTIVE screen we
+     also call provisionStartBackground() if the AP isn't already
+     up. Three call sites:
+       - boot-time captive probe in winRadio.ino setup()
+       - on-device WiFi-picker connect that lands on a captive
+       - CLI `wifi connect` and `captive` commands
+  4. When the periodic 15 s probe later sees CAPTIVE_ONLINE we
+     tear the AP back down (provisionStop), since internet now
+     flows and the AP is no longer needed.
+  5. Updated the DM_CAPTIVE on-screen text from "once the portal
+     lets us through" to "Or: connect to AP 'ON8CIT-Setup' to
+     switch / abort", so the user knows the fallback exists.
+
+
+== Changes made in this round (7-5-2026) ========================================
+
+User-chosen network = boot default
+  1. New backend helper wifiPromoteNetwork(idx) that moves a saved
+     entry to position 0 (so it's the first one tried at boot).
+  2. Every "the user explicitly chose this network NOW" path now
+     promotes the chosen SSID to the top of the saved list:
+       - On-device WiFi picker (DM_WIFI_PICKER) on success.
+       - Web /api/wifi-connect (saved-list connect) on success.
+       - Web /api/wifi-connect-adhoc (visible-network connect) on
+         success.
+       - CLI `wifi connect <ssid>` on success (logs "Promoted to
+         top of the boot-walk order.").
+       - AP provisioning portal /save (the SSID just added is
+         what they want to join; reboot will pick it up first).
+     This fixes the reported regression where the radio kept
+     re-joining the failed captive-portal network on reboot even
+     after the user had successfully picked a phone hotspot.
+
+AP portal stays useful during boot connect attempts
+  3. The background AP portal already runs alongside netConnect()
+     (provisionStartBackground), but the portal page only had Save
+     and Delete -- no way to reorder or to abort an in-progress
+     connect. Added:
+       - Up/Down arrow buttons on every saved-network row.
+       - "Abort current connect attempt" button that latches a
+         flag picked up by the boot-loop's abort callback.
+     POST endpoints: /wifi-up, /wifi-down, /abort.
+  4. New net-side accessors provisionAbortRequested() /
+     provisionClearAbort(); netAbortOnRightButton() polls them so
+     a portal-abort breaks out of netConnect() the same way a
+     V-button hold does today.
+  5. The boot loop distinguishes "abort via portal" from "list
+     exhausted". Portal-abort: keep the AP up, show "Aborted.
+     Retrying saved networks..." for 600 ms, and re-enter the
+     loop (the user has already reordered or added an entry, so
+     the next iteration tries the now-top SSID). List-exhausted:
+     unchanged, falls into setup mode.
+
+== Changes made in this round (6-5-2026) ========================================
+
+Connecting-screen layout
+  1. The growing-dots indicator on the DM_WIFI_CONNECT screen was
+     drawn at LGFX font 4 (~28 px tall, very wide); 16 dots could
+     run off the right edge. Dropped to font 2 (~14 px), bumped
+     the dot count to 24, and shifted the elapsed-seconds + error
+     rows up to match. Whole connecting screen now fits cleanly
+     above the y=217 footer rule.
+
+AP provisioning portal: delete saved networks
+  2. The captive-portal setup page (AP mode, http://192.168.4.1
+     or http://on8cit-setup.local) now has a "Saved networks"
+     card listing every entry in the boot-walk order. Each row
+     has an X button that POSTs /wifi-del to forget the network
+     (with a confirm() guard). Lets the user scrub stale creds
+     before they auto-rejoin a network they no longer want.
+  3. The web /wifi page already had Delete on every row; the CLI
+     already has `wifi remove <n>`. The portal was the missing
+     leg of "all three surfaces". All three now agree.
+
+Captive-portal detection (the "easy 90%")
+  4. New net.cpp probe netCheckCaptive(). Sends a raw HTTP/1.1
+     GET to connectivitycheck.gstatic.com/generate_204 (Android's
+     check) and msftconnecttest.com/connecttest.txt as fallback.
+     We parse the status line + Location header ourselves so the
+     captive 30x is preserved (HTTPClient's auto-follow would
+     mask it). Returns ONLINE / PORTAL / OFFLINE / UNKNOWN.
+  5. New display mode DM_CAPTIVE. Shows "Captive portal" banner,
+     the SSID, the parsed login URL (wrapped to fit), and "Audio
+     resumes automatically once the portal lets us through".
+     Footer hint: "Probing every 15 s -- L: dismiss".
+  6. Probe runs:
+       - At boot, after the saved-network list joins.
+       - After every successful CLI `wifi connect`.
+       - After every on-device WiFi-picker connect.
+       - From the main loop every 15 s WHILE the captive screen
+         is up, so the unit unblocks itself once the user logs
+         in on a phone -- no manual retry needed.
+  7. New CLI commands:
+       captive            -- one-shot probe with verbose output
+                             ("Portal URL: ...", instructions).
+     `wifi connect` now also runs an automatic probe after a
+     successful join and surfaces the portal on the LCD if found.
+  8. Audio is NOT auto-started on a new join when a captive
+     portal is detected -- the radio would just bang its head on
+     a 30x. As soon as the periodic probe sees ONLINE again we
+     call audioStartLast() and dismiss the captive screen.
+
+
+== Changes made in this round (5-5-2026) ========================================
+
+  1. Boot Morse sequence shortened from "ON8CIT" to "CIT".
+
+  2. IMU pause/resume reworked. Was: face-up resumes, face-down
+     pauses (binary either-or). New: face-down pauses (gravity on
+     +Z dominant, Az > 0.85 g for 500 ms); ANY tilt past ~45 deg
+     off horizontal resumes (Az < 0.70 g for 300 ms). So the unit
+     can be stood on any edge, propped against something, or
+     simply picked up to resume; only laying it flat face-down
+     pauses. Hysteresis (0.85 / 0.70 g) prevents oscillation.
+
+  3. New backend API stationsMove(from, to) plus an audioSetCurrentSlot
+     helper that updates the playing-slot pointer without
+     reconnecting. Together they let drag-drop reorder shuffle
+     entries while the current stream keeps playing.
+
+  4. On-device station picker controls reworked per user:
+       - Right short = cursor forward (next)
+       - Mid short   = cursor backward (prev)
+       - Mid double-click, Mid long-press, Right long-press = select
+       - Left short  = cancel back to the prior home mode
+     The previous "Mid short = next" behaviour made it painful to
+     back up by one when you over-shot the desired station.
+
+  5. New display mode DM_STATION_DETAIL. Triggered by a double-click
+     on the Left button while in Now Playing. Shows the slot
+     number / N, friendly name, ICY broadcast name (when the
+     stream sent one), the full stream URL wrapped onto multiple
+     lines, current bitrate, and the latest song title. Any short
+     press exits. Left double in BigClock mode still toggles
+     play/pause -- the new mapping only fires from Now Playing.
+
+  6. Web station list: drag-and-drop reorder.
+     - Each row gets a draggable handle (& a HTML5 dragstart/drop
+       wiring on the row itself).
+     - Drop fires POST /api/station-move with from + to indices;
+       the audio module's playing-slot index is fixed up so the
+       current stream keeps playing across the reorder.
+     - Page scroll position is preserved across edits, adds and
+       deletes via window.scrollY in sessionStorage. The 302
+       redirect-back UX no longer slams the user back to the top.
+
+  7. New /wifi page: full WiFi credential management.
+     - "Saved networks" card: drag-drop reorderable list (the
+       boot-time connect loop walks this top-to-bottom). Each row
+       has Connect (live-switch) and Delete actions; the currently-
+       joined slot is flagged with a yellow "(joined)" tag.
+     - "Visible networks" card: scanned APs that are NOT yet in
+       the saved list (so the two columns don't duplicate). Each
+       has a Connect button that opens a small password modal,
+       saving creds on a successful join.
+     - "Add manually" card: text inputs for SSID + password, for
+       hidden / out-of-range networks. Saves without connecting.
+     - Rescan button to refresh the visible list.
+     - We DO NOT auto-save networks that were merely scanned --
+       only successful-connect or explicit-save flows persist
+       credentials, matching the user's spec.
+     - New endpoints: /api/wifi-connect, /api/wifi-connect-adhoc,
+       /api/wifi-add, /api/wifi-del, /api/wifi-move,
+       /api/wifi-rescan. All listed in /api-docs.
+
+
+== Changes made in this round (4-5-2026) ========================================
+
+Polish round
+-------------
+  1. IMU orientation: the +Z axis on the Waveshare board points OUT
+     THE BACK of the case, not out the screen. The original face-down
+     pause/resume test was written for the screen-up convention so it
+     fired backwards. Swapped the comparisons:
+       - face-up   = Az < -0.75 g  (was: > +0.6 g)
+       - face-down = Az > +0.75 g  (was: < -0.6 g)
+     Threshold raised from 0.6 g to 0.75 g and the debounce window
+     from 300 ms to 500 ms so a moment of tilt while picking up the
+     unit doesn't accidentally toggle the orientation.
+
+  2. CLI escape-sequence filter. PuTTY's Delete key sends the multi-
+     byte CSI sequence ESC [ 3 ~. Without filtering, the printable
+     bytes ([, 3, ~) leaked into the typed line and broke every
+     command after a Delete keystroke. Both cliPoll() and the
+     blocking-line readLineBlocking() now skip CSI sequences (any
+     bytes between ESC [ ... and the final byte 0x40-0x7E). Arrow
+     keys, Home, End, F-keys, etc. are all silently swallowed by
+     the same filter.
+
+  3. Web header: the ON8CIT + WebRadio banner is now a clickable
+     link to / (so any page in the UI can return home with one tap
+     on the brand). A small house-icon Home button sits top-right
+     of the header on every page, matching the colour of the brand
+     wordmark.
+
+
+
+WiFi: on-device picker
+-----------------------
+  1. New display modes DM_WIFI_PICKER + DM_WIFI_CONNECT. From the
+     System-info screen, a second long-press on the Right button
+     (>= 2 s) opens the WiFi picker.
+  2. Picker layout mirrors the station picker: 3x3 grid of cards,
+     paged. Each card shows the SSID (wrapped to 2 lines) and a
+     small 4-bar signal-strength indicator in the top-right.
+  3. Mid short = advance cursor in reading order (auto-pages every
+     9 cells, wraps); Mid double-click = connect to the highlighted
+     SSID; Left or Right short = cancel back to System info.
+  4. On select: looks up the SSID in the saved-credentials list. If
+     found, uses the stored password; otherwise tries open auth.
+     Switches to the DM_WIFI_CONNECT screen showing "Connecting to
+     <ssid>...", a growing dot indicator and an elapsed-seconds
+     counter. Repaint runs inline at ~5 Hz from netConnectAdhoc's
+     progress callback so the UI doesn't freeze.
+  5. On success: SSID/password are persisted via wifiAddNetwork
+     (which updates in place if the SSID was already saved), audio
+     is reconnected via audioStartLast(), and the screen switches
+     to Now Playing.
+  6. On failure: shows a brief "Saved password failed." or "Open
+     auth failed." message for 1.5 s, then falls back to the WiFi
+     picker so the user can pick another network.
+  7. While the picker scan is running (~2-3 s blocking), a quick
+     "Scanning WiFi..." status message is shown in place of the
+     stale System-info screen.
+
+WiFi: improved CLI connect flow
+--------------------------------
+  8. `wifi connect <ssid>` (no password): now looks up stored
+     credentials for that SSID and uses them; if none are saved
+     it tries open auth on the first attempt, then prompts for
+     a password if that fails.
+  9. `wifi connect <ssid> <pass>`: ad-hoc connect with the supplied
+     password; offered to save on success.
+ 10. If a stored password fails (AP password rotated), the CLI
+     prompts for a replacement and updates the saved entry on
+     successful retry.
+ 11. New shared progress callback type (void(*)(uint32_t)) on
+     netConnectAdhoc and tryJoin so callers (CLI, on-device
+     picker) can render their own progress UI. CLI prints a dot
+     every ~750 ms during the join.
+
+Stations: CLI search + standalone defaults
+-------------------------------------------
+ 12. New CLI `find` command set:
+       find <text>           -- name search
+       find tag <tag>        -- genre search
+       find country <name>   -- country search
+       find list             -- show last results
+       find play <n>         -- preview hit N (no save)
+       find save <n>         -- append hit N to the station list
+     Backed by the existing discoverSearch() Radio-Browser client
+     (the same code the /discover web page uses), so feature parity
+     is automatic.
+ 13. New file: winRadio/stations_defaults.h. The compiled-in seed
+     list now lives there as a single inline-constexpr array. To
+     change the factory default stations: edit stations_defaults.h,
+     rebuild, and (if you want existing flashed units to reseed)
+     run "station reset-all" via the CLI / web. stations.cpp is
+     unchanged from a code structure point of view; it just pulls
+     the array in via #include.
+
+
+== Changes made in this round (2-5-2026) ========================================
+
+On-device navigation: two new LCD modes
+----------------------------------------
+  1. System-info screen (DM_SYS_INFO).
+     - Entered by long press on the Right button (>= 2 s).
+     - Shows: battery voltage + 5-bar level, WiFi SSID, signal as a
+       5-bar meter + dBm, IP address, "<host>.local" hostname.
+     - Exits on any short press (Left, Mid or Right).
+     - Long-presses still pass through, so a long-press on Left
+       still puts the radio to sleep, etc.
+
+  2. Station picker (DM_PICKER).
+     - Entered by long press on the Middle button (>= 2 s).
+     - 3x3 grid of station cards. Each card shows the slot number
+       and the friendly name (wrapped to 2 lines if needed). The
+       currently-playing slot is shaded; the cursor cell is yellow.
+     - Mid short press = advance the cursor through the grid in
+       reading order (top-left -> bottom-right). At the bottom-right
+       the next short press moves to the next page of 9; the last
+       page wraps back to slot 0.
+     - Mid double-click = select the highlighted slot
+       (audioSelectStation + close).
+     - Left or Right short press = cancel and return to the previous
+       home mode.
+     - Footer shows page indicator (e.g. "p2/4") when there's more
+       than one page.
+
+  3. Input state machine: Mid and Right now share the same
+     short/double/long state machine as Left. Consequence: NEXT
+     (Mid short) now fires on RELEASE rather than on press, after
+     a 350 ms double-click window. Right has no double-click so
+     VOL_UP fires on release with no extra delay.
+
+  4. New input events: INPUT_PICKER_OPEN (mid long), INPUT_SYS_INFO
+     (right long), INPUT_PICKER_SELECT (mid double).
+
+  5. Main-loop dispatcher is mode-aware:
+     - In DM_SYS_INFO any short press calls displayModalClose() and
+       eats the event.
+     - In DM_PICKER, Mid short = advance, Mid double = select,
+       Left/Right short = cancel; all eaten so they don't double-
+       fire as their normal "global" actions.
+
+  6. New net helper: netCurrentSsid() returns the associated SSID
+     (empty when not connected), so display.cpp doesn't have to
+     reach directly into <WiFi.h>.
+
+
+
+== Changes made in this round (1-5-2026) ========================================
+
+6-axis IMU
+-----------
+  1. New imu.{h,cpp} module. Auto-probes the I2C bus at 0x6A / 0x6B
+     for the QMI8658C chip-ID register (0x00 = 0x05). If found,
+     initialises it for 125 Hz accel at +/-2 g (gyro left off --
+     not needed for our two use cases, saves power). If not found,
+     logs an I2C scan of all visible devices and disables IMU
+     features -- the rest of the firmware keeps working.
+  2. imuLoop() polls at ~10 Hz from the main loop(). It exposes:
+       - imuMotionEvent()   : one-shot when frame-to-frame accel
+         magnitude jerks by >0.12 g (picked up, tapped, shaken).
+       - imuFaceDownEvent() : debounced 300 ms face-down transition.
+       - imuFaceUpEvent()   : debounced 300 ms face-up transition.
+     Classification is on the smoothed gravity vector (EMA alpha
+     0.2); face-up = Az > +0.6 g, face-down = Az < -0.6 g.
+  3. Motion-wake: imuMotionEvent() -> displayNoteActivity(), so
+     picking up the radio un-dims the backlight without needing to
+     hit a button.
+  4. Face-down pause: when the unit is turned screen-down, audio is
+     auto-paused and a flag remembers we did it. On the next face-up
+     transition, playback resumes (only if WE paused it -- a manual
+     pause with the Left button won't be undone by a flip).
+
+Stations: variable-count list (0..30)
+--------------------------------------
+  5. Station list is now a packed NVS list, not a fixed set of
+     "defaults + per-slot overrides". stationsBegin() restores from
+     NVS; on first boot it seeds from SD /stations.csv or the
+     compiled defaults and persists the seed.
+  6. New public API: stationsMax(), stationsAdd(name,url),
+     stationsDelete(idx), stationsEdit(idx,name,url),
+     stationsResetToDefaults(). The old override-layer functions
+     (stationsOverrideName/Url, stationsResetSlot, stationsSetSlot,
+     stationsApplyOverrides, stationsUseDefaults) are gone.
+  7. Web: home-page Stations card shows N / 30 usage and a "+ Add
+     station" button that opens the existing edit modal with n=-1.
+     The edit modal now has a Delete button (confirm-guarded) that
+     posts to a new /api/station-del endpoint. The list shifts down
+     on delete so the visible order stays contiguous.
+  8. /discover Save defaults to "+ Add to list" instead of
+     "Replace slot 1". The slot-pick dropdown still offers explicit
+     Replace slot X... for deliberate overwrites, which is handy
+     when the list is full.
+  9. CLI: "station add" (interactive append), "station del <n>",
+     "station reset-all" (wipe + reseed defaults). "station reset
+     <n>" (single-slot clear-override) is gone -- there's no longer
+     an override layer to clear.
+ 10. audioStationDisplayName() simplified: stored name wins unless
+     it IS the URL (fallback state from an Add with no name); in
+     that case the URL-derived prettifier runs. Covers Discover
+     saves where the Radio-Browser entry had an empty name.
+ 11. audioNextStation / audioPrevStation guard against an empty
+     list (avoiding the modulo-by-zero that a fully-deleted list
+     would have produced).
+
+
+== Changes made in this round (30-4-2026) =======================================
+
+Clock interface
+  1. Time font reverted to LGFX font 7 (the 7-segment LED look). Drawn
+     via the sprite's drawString so there's no auto-wrap. textWidth
+     centres it; height ~48 px, fits cleanly above the date.
+  2. Volume bar shrunk + moved: was 36x12 at y=148 under the date,
+     now 30x8 at y=207 (just above the orange footer rule). The
+     "VOL" label sits immediately above, left-justified.
+  3. The song-title scroll strip (kClockSongY=168) is no longer
+     hidden behind the volume bar -- volume moved to the bottom
+     opened the whole mid-band up. Song ticker now scrolls
+     visibly in clock mode.
+
+Slot-1 preview bug
+  4. Fixed by splitting the audio display name into two functions:
+       audioStationDisplayName(idx) -- pure slot label, NVS
+         override or URL-derived. Never includes the ICY broadcast
+         name. Used by the station grid / switcher / web list.
+       audioNowPlayingName()        -- ad-hoc preview name > ICY
+         station name > current slot's display name. Used only by
+         the NP card's big green header.
+     The previous single-function path fell through to the ICY name
+     whenever idx == s_chosen, which is why saving a new candidate
+     via /api/listen temporarily made slot 0 on the home grid render
+     as the previewed station. audioPlayAdhoc now stores the name in
+     a dedicated s_adhocName slot and clears the ICY cache to stop
+     the stale flash on reconnect; audioSelectStation clears
+     s_adhocName so the NP header reverts correctly.
+
+Web layout
+  5. /discover Save is now AJAX. The Save button flips to "Saving..."
+     then "Saved" inline and the page stays put -- user can keep
+     auditioning other results on the same list. The underlying
+     POST /api/station-edit still 302s to / for the home-page modal
+     form; the Discover path just uses fetch() and ignores the
+     redirect.
+  6. API card removed from the home page. New dedicated /api-docs
+     page reached via the "API" link in every page's footer.
+  7. Discover button is now ONLY the "Discover more stations"
+     gradient tile inside the Stations card. The duplicate in
+     Controls is gone.
+  8. Reboot moved to its own bottom "System" card. Still has the
+     confirm() prompt + loading modal.
+
+Feedback
+  9. Every internal <a href> (same-origin, non-anchor) now fires
+     showLoading('Loading page...') on click. The first-visit
+     /discover navigation (no browser cache, slow TLS + Radio-
+     Browser round-trip) no longer looks frozen.
+
+Discover HTTP -1
+ 10. HTTP-first, HTTPS-fallback. After setInsecure() helped most of
+     the time, the remaining "HTTP -1" reports were the ESP32's TLS
+     handshake timing out under the 8 s budget against rotating LE
+     certs. Switched httpGet to try plain HTTP against every mirror
+     first (WiFiClient, 8 s), then HTTPS with setInsecure as a
+     fallback (WiFiClientSecure, 15 s). HTTP sidesteps the
+     handshake entirely on hosts that accept it -- all Radio-
+     Browser mirrors do. First 200 wins. setReuse(false) stops
+     stale sockets leaking between retries.
+
+
+== Changes made in this round (29-4-2026) =======================================
+
+
+
+
+== Changes made in this round (29-4-2026) =======================================
+
+Display
+--------
+  1. NP labels ("On Air", "Now Playing") are now left-aligned at the
+     card's inner margin instead of centred.
+
+  2. Clock-mode song ticker:
+     - setTextWrap(false) on the Arduino_GFX path so long titles stay
+       on one line and scroll instead of overflowing onto the date
+       row.
+     - Font dropped from size 2 (~14 px/char) to size 1 (~6 px/char),
+       roughly 40 % smaller per user spec.
+     - New dedicated kClockSongY constant so the clock-mode strip no
+       longer shares a Y with the NP mode (avoided collision with
+       the new volume bar).
+
+  3. Clock-mode volume bars:
+     - Horizontal 5-segment bar under the date (y=148). 36x12
+       segments, 4 px gap, rounded, labelled "VOL" on the left.
+     - Same colour semantics as the NP vertical bar.
+
+  4. Clock-mode time font:
+     - Dropped from LGFX font 7 (48 px/char -- 8 chars = 384 px
+       overflowed the 240 px screen) to font 4 (~28 px/char). Full
+       HH:MM:SS now fits with room for date + volume + pause
+       indicator underneath.
+
+
+Discover
+---------
+  5. TLS fix for the "HTTP -1" regression:
+     - Discover was failing every request because arduino-esp32's
+       default HTTPClient couldn't verify Radio-Browser's Let's
+       Encrypt chain without a baked-in CA bundle. Switched to
+       WiFiClientSecure with setInsecure() + http.begin(secure,
+       url). Acceptable for a public read-only API that carries no
+       user credentials. Timeout bumped to 8 s and strict redirect
+       follow enabled.
+
+  6. Alphabetical dropdowns:
+     - Genre / tag and Country pickers now sort case-insensitively
+       by name. The underlying fetch is still weighted by station-
+       count (so the 40 most-populated tags and ~240 countries are
+       kept) but the presentation is alphabetical.
+
+  7. Per-station info + homepage link:
+     - Each result row shows: name + codec + bitrate + country on
+       line 1; the first four tags + an optional "Homepage ->"
+       link (opens in a new tab, rel=noopener) on line 2; raw
+       stream URL on line 3; Listen + Save on line 4.
+
+  8. Listen stays on the results page:
+     - Listen now does a fetch('/api/listen') instead of a form
+       POST that 302-redirects back. The page stays as-is, letting
+       the user try other stations on the list without losing the
+       search state.
+     - /api/listen now returns 200 on success / 502 on playback
+       failure; no redirect.
+
+  9. In-flight feedback on Listen:
+     - The clicked button goes disabled + "Connecting...", then
+       "Playing" for 1.5 s, then restores. Other Listen buttons on
+       the page are disabled for the same window so the user can't
+       spam-click.
+
+ 10. Loading modal:
+     - Shared inline #loading overlay with a dark card. Shows on:
+         - every form submit (Searching / Saving / Working...)
+         - Listen fetch  (Asking radio to play...)
+         - the Home-page Discover CTA  (Opening Discover...)
+     - Clears on pageshow so navigating back with the browser's
+       history doesn't leave it stuck.
+
+ 11. Large Discover CTA in the Stations card:
+     - Cyan-on-dark gradient button above the station grid labelled
+       "Discover more stations", linked to /discover. Triggers the
+       loading modal on click. CSS lives in branding.cpp so both
+       pages share the style.
+
+ 12. Source dropdown forward-looking:
+     - Radio-Browser stays the only real source.
+     - SHOUTcast YP and TuneIn OPML appear as disabled placeholder
+       options so the roadmap is visible in the UI itself. They
+       light up when their respective clients land.
+
+
+== Changes made in this round (28-4-2026) =======================================
+
+
+
+
+== Changes made in this round (28-4-2026) =======================================
+
+  1. Scroll-strip borders removed.
+     - The 1 px frames around the on-air and song-title tickers are
+       gone. Only the outer 1 px border of the now-playing card
+       remains.
+
+  2. Labels relocated.
+     - "On Air" is now a centred label above the scrolling station-
+       name strip.
+     - "Now Playing" is a centred label above the scrolling song-
+       title strip.
+     - The old "NOW PLAYING" card header and top-right play/pause
+       glyph are gone (the big pause overlay replaces the corner
+       indicator).
+
+  3. Big-clock song strip: full-width + matching background.
+     - In clock mode the song ticker is now drawn directly on the
+       panel at the full 240 px width, in g_theme.bg -- no more
+       contrast mismatch with the rest of the screen. sprite2 is
+       202 wide so it can't do full width itself; the clock path
+       uses gfx-> instead and skips the sprite.
+
+  4. Flicker fix on static on-air / song strips.
+     - displayDrawScroll() now caches the last-drawn text and
+       scroll position. The sprite is only re-filled + blitted when
+       something actually changed. Short non-scrolling names
+       ("Radio Caroline") are drawn exactly once until the ICY
+       string changes.
+
+  5. Pause overlay in NP mode.
+     - When audioIsPaused() a large "||" (two 18x54 yellow rounded
+       bars) is painted over the centre of the NP card after the
+       rest of the content renders.
+
+  6. Pause indicator in clock mode.
+     - Small "||" + "Playback Paused" label at y=205 below the date.
+       Clear of the big clock face, doesn't overlay the time.
+
+  7. Splash credit.
+     - "By Gareth Davies, 2026" added to the bottom of
+       displayShowBootSplash in muted grey; firmware version /
+       status lines slide up to make room.
+
+  8. Web /discover page (new).
+     - New discover.{h,cpp} module. Radio-Browser Community API
+       (https://api.radio-browser.info) client with a hand-rolled
+       JSON parser so no lib_deps change was needed.
+     - Tries de2 / de1 / at1 / all regional mirrors in turn so a
+       transient DNS / cert issue on one node doesn't block
+       discovery.
+     - DiscoverHit carries name, url, homepage, favicon, tags,
+       country, codec, bitrate.
+     - Search fields: name, genre/tag (dropdown populated from the
+       top 24 server tags), country (dropdown populated from the
+       full country list). Ordered by community votes, descending,
+       with hidebroken=true so the server filters dead streams for
+       us.
+     - Source-picker dropdown (Radio-Browser today; sourceName()
+       enum + discoverSearch API are set up so adding a second
+       source is additive).
+     - Each result has "Listen" (ad-hoc play without touching the
+       saved list -- see below) and "Save" (slot dropdown ->
+       /api/station-edit, reusing the existing editable-stations
+       machinery).
+     - Home page gains a cyan Discover button in the Controls card
+       and a "discover" link in the footer.
+     - /api/listen POST url= name= -> audioPlayAdhoc -> 302 back.
+
+  9. audioPlayAdhoc(url, name).
+     - Ad-hoc playback that doesn't touch the saved stations list
+       or the current-slot index. Sets the ICY display name
+       directly so the LCD immediately reflects the preview.
+     - Used by /api/listen; also available for future "try a URL"
+       flows (e.g. CLI `play url <http://...>`).
+
+MP3 player from SD -- intentionally skipped this round per the user
+request. Design notes from last round still apply.
+
+
+== Changes made in this round (27-4-2026) =======================================
+
+== Changes made in this round (27-4-2026) =======================================
+
+  1. Station switcher is now a 50/50 split with titled boxes:
+     <<Prev | Next>> headers (centred), a 1 px orange-outlined box
+     below each carrying the previous / next station display name.
+     Current station is shown only in the now-playing card; the
+     switcher is purely the two adjacent slots.
+
+  2. "On Air" line re-laid-out as two rows, centred:
+     - "On Air" label (static, centred).
+     - Station name in a bordered strip below it. If the name is
+       wider than the strip (~14 chars at font 2) it scrolls via
+       s_sprite2 with its own scroll position; shorter names sit
+       static and centred.
+     - Driven from displayDrawScroll() so it advances on the same
+       30 ms tick as the song ticker.
+
+  3. "Slot X of Y" removed from the now-playing card.
+
+  4. Play / Pause indicator in the top-right of the now-playing
+     card. Filled green triangle when playing, two yellow bars when
+     paused. Updates on the same repaint tick as the rest.
+
+  5. 1 px border around the whole now-playing box; 3 px gap between
+     the clock strip and the top of the card (was touching the
+     orange divider before).
+
+  6. Big-clock mode. New DisplayMode enum {DM_NOW_PLAYING,
+     DM_BIG_CLOCK}. Big-clock view keeps the banner + clock strip +
+     footer; the middle band shows a large HH:MM:SS (font 7) with
+     the date centred below. "(syncing)" placeholder until SNTP
+     locks.
+
+  7. Left-button gestures (input.cpp rewritten).
+     - Short press (release inside 2 s): MODE_TOGGLE -> cycle the
+       display mode.
+     - Double-click (two short presses within 350 ms): PLAY_PAUSE
+       -> audioTogglePause().
+     - Long press (held >= 2 s): SLEEP -> powerDeepSleep(). Fires
+       while the button is still held; the state machine parks in
+       L_LONG_FIRED until release so SLEEP isn't re-emitted.
+     - If R goes down while L is held the machine yields to
+       inputRebootCombo(). The right-button VOL_UP event is
+       suppressed for the duration of any L hold so the reboot
+       combo doesn't spam volume changes.
+     - Wake from deep sleep is unchanged: ext0 on GPIO 0 still
+       resumes on any L press.
+
+  8. Web controls: new Play/Pause button next to Prev/Next,
+     /api/play endpoint toggles, /api/state exposes a "paused"
+     field.
+
+
+== Design notes: MP3 player from SD (item 6) ====================================
+
+Architecture sketch. Not implemented yet; captured here so the
+wiring can happen in a self-contained future commit.
+
+Goals
+  * Play MP3 / AAC / OGG from /music/ on SD, with optional sub-
+    directories per album / playlist.
+  * Standard playlist formats: .m3u / .m3u8 (line-per-file),
+    .pls (Shoutcast format), .xspf (XML; optional later).
+  * Shuffle / repeat modes + a "resume last playlist position"
+    across reboots.
+  * Metadata: ID3v2 for MP3, ATOM boxes for AAC, Vorbis comments
+    for OGG. ESP32-audioI2S already parses these and emits
+    evt_id3data / evt_streamtitle.
+
+Module boundary: new player_sd.{h,cpp}
+  API:
+    bool        playerSdBegin();            // pull SD, scan /music/
+    int         playerSdPlaylistCount();    // number of .m3u files
+    const char *playerSdPlaylistName(int);
+    bool        playerSdLoadPlaylist(const char *path);
+    bool        playerSdPlay(int track);    // 0-based
+    bool        playerSdNext();
+    bool        playerSdPrev();
+    bool        playerSdPause();
+    void        playerSdStop();
+    int         playerSdCurrentTrack();
+    int         playerSdTrackCount();
+    const char *playerSdTrackPath(int);
+    void        playerSdSetShuffle(bool);
+    void        playerSdSetRepeat(int);     // 0=off, 1=track, 2=all
+
+Storage:
+  * Active playlist lives in RAM as a dynamic std::vector<String>
+    (paths into /music/). Bounded at kMaxTracksInPlaylist = 512
+    to keep RAM predictable.
+  * Resume state in NVS: keys "player/lastpl" (path), "player/
+    lastidx" (int), "player/shuffle" (bool), "player/repeat" (int).
+
+Playback:
+  * audio.connecttoFS(SD_MMC, path) starts a file; seek support
+    via audio.setFilePos().
+  * On evt_eof: advance index per shuffle / repeat, call
+    connecttoFS on the new path.
+  * Radio-mode vs SD-player-mode is tracked by an "audioSource" enum
+    in the audio module: AUDIO_SRC_STREAM vs AUDIO_SRC_SDFILE.
+    audioSelectStation switches to STREAM; playerSdPlay switches
+    to SDFILE.
+
+UI hooks:
+  * Web: new /files page with a directory listing of /music/, plus
+    a playlist editor (drag-reorder). POST /api/player/play
+    {path=..., track=...}.
+  * LCD: reuse the now-playing card, with display name coming from
+    playerSdCurrentTrack's ID3 tag (title + artist); the station
+    switcher row gets repurposed as a small "track X of N" +
+    prev/next if we're in SD mode.
+  * CLI: new `play <path>` / `play ls [dir]` / `play list` / `play
+    shuffle on|off` commands.
+
+Risks:
+  * SD + network + audio task can fight for SPI / PSRAM. Start
+    with mode-exclusive (only one source at a time) rather than
+    crossfade.
+  * ID3v2 tags with album art can be megabytes; parse only title +
+    artist + length fields and skip the rest.
+
+
+== Design notes: web-radio station discovery (item 7) ===========================
+
+Goals
+  * In-device discovery of internet radio stations (genre / search)
+    without leaving the radio.
+  * Add-to-favourites with one click -> goes into the overrides
+    layer that's already in stations.cpp.
+
+Back-end choice (cheap first):
+  * Radio-Browser Community API:
+      https://api.radio-browser.info/
+      https://de1.api.radio-browser.info/json/stations/search?name=...
+    Free, no auth, CORS-friendly, returns JSON with station name /
+    URL / bitrate / codec / country / tags.
+  * Fallback: Shoutcast YP API (legacy). TuneIn needs a key.
+
+Module boundary: new discover.{h,cpp}
+  API:
+    struct Hit { String name, url, codec; int bitrate; String country; };
+    int   discoverSearch(const char *query, Hit *out, int maxOut);
+    int   discoverByGenre(const char *genre, Hit *out, int maxOut);
+    bool  discoverSaveHit(int slot, const Hit &h); // -> stationsSetSlot
+    int   discoverTopTags(String *out, int maxOut); // cache of common tags
+
+Implementation sketch:
+  * Use HTTPClient to GET the API with a User-Agent of
+    "ON8CIT-WebRadio/0.3". Radio-Browser requires a UA header.
+  * Parse JSON with ArduinoJson (add to lib_deps). Typical response
+    is < 10 KB for 30 hits; stream-parse to avoid heap pressure.
+  * Cache last query + results so paging between the LCD and web
+    doesn't re-hit the API.
+
+UI hooks:
+  * Web: /discover page. Genre chips (top 12 tags), search box,
+    results list. Each hit has a "Save to slot N" dropdown that
+    POSTs to /api/station-edit (already implemented).
+  * LCD: skip an LCD UX in v1 -- the discover flow is
+    fundamentally long (typing a query, picking a hit) and the web
+    UI is a better surface.
+  * CLI: `discover search "jazz"`, `discover save 3 <hit#>` for
+    headless workflow.
+
+Privacy / rate limits:
+  * Radio-Browser asks for a UA and ~1 QPS per client. Not an
+    issue for human-driven search.
+
+
+== Changes made in this round (26-4-2026) =======================================
+
+  1. 10 s boot splash + continuing connect view.
+     - Splash displays the full ON8CIT wordmark + logo for at least
+       10 s on every boot. If connect happens sooner, the splash
+       stays up until the 10 s has elapsed so the boot brand always
+       gets its full showing.
+     - Scan + netConnect() run *during* the splash window, not after.
+       A new progressCb (netProgressUi) picks between two display
+       modes based on elapsed time:
+         - < 10 s: big splash with "Trying N/M: <ssid>" as the status
+           line.
+         - >= 10 s: compact layout (small logo + scan list with chN +
+           RSSI bars + SSID + "Trying N/M: <ssid>" commentary).
+     - Pre-connect right-button check still jumps straight into
+       setup for users who know they need to reconfigure.
+     - Long SSIDs truncate with "..." in the commentary for now; a
+       proper horizontal ticker (like the song-title strip) would be
+       the next step if needed.
+
+  2. Morse callsign is "de CIT".
+     - Shorter chirp at 30 WPM. Same volume (2/5). One-line change.
+
+  3. Hostname "WebRadio.local" + tab favicon.
+     - DEFAULT_HOSTNAME is now "WebRadio"; main web UI + mDNS + diag
+       all update. Radio is reachable as http://WebRadio.local/.
+     - New on8citFaviconSvg() in branding.cpp: standalone SVG tile
+       with a dark rounded background + the broadcast-waves logo.
+     - /favicon.svg (and .ico alias) served by both web.cpp and
+       provision.cpp with image/svg+xml + Cache-Control. Pages now
+       include <link rel=icon type=image/svg+xml href=/favicon.svg>.
+
+  4. Network-synchronised wall clock + web timezone setting.
+     - New clock.{h,cpp}. configTzTime() against pool.ntp.org +
+       time.nist.gov + time.google.com. Default TZ is Europe/London
+       (GMT0BST,M3.5.0/1,M10.5.0).
+     - clockFormatDate -> "Sat 25-Apr-2026", clockFormatTime ->
+       "14:32:05". Exposed to the display module for the LCD strip
+       and to the web UI's Clock card + /api/state JSON.
+     - Web: preset dropdown (UTC / UK / EU / US-E/C/M/P / JP / AU)
+       and a free-text POSIX TZ field. POST /api/timezone persists
+       to NVS ("clock/tz") and re-arms SNTP immediately.
+     - CLI: `time` / `time show` / `time set <posix-tz>`.
+
+  5. Redesigned home LCD.
+     - Banner (0..24) : mini logo + ON8CIT WebRadio wordmark (yellow
+       + cyan) + battery pill at the right edge.
+     - Clock (24..46) : date + HH:MM:SS, falls back to "(time
+       syncing)" while SNTP is warming up.
+     - Now-playing card (50..172, 90%-wide) : big station display
+       name (override > ICY > URL-derived), slot-of-N, optional
+       "On air: <icy>" line, bordered song-title scroll strip at
+       y=150.
+     - Volume column (right 10%) : vertical 5-segment bar flanked
+       by up/down triangle placeholders for a future touch driver.
+     - Station switcher (174..216) : 3-row picker with prev/next
+       station names (dim) flanked by ^/v triangles, current slot
+       centred in an orange-outlined highlight.
+     - Footer (218..240) : orange rule + "RSSI -45 dBm  BITRATE
+       128 kbps".
+     - sprite2 (song ticker) repositioned to (6, 150, 202x16) so it
+       sits inside the now-playing card instead of on the old
+       bottom strip.
+
+
+6. Make notes in this file about how we might implement an MP3 Player from the SD card
+with industry standard options for playlists. 
+
+7. Make notes in this file about how we might implement a web-radio station discovery function
+perhaps with web control or OLED options.
+
+
+== Changes made in this round (25-4-2026) =======================================
+  
+  
+  1. Background AP during boot.
+     - provisionStartBackground() puts WiFi into AP+STA mode so the
+       captive portal is reachable alongside the saved-network connect
+       attempts. You can jump to setup via
+       http://on8cit-setup.local / http://radio.setup / 192.168.4.1
+       immediately after boot, without waiting out the per-slot 8 s
+       connect timeouts.
+     - If every saved network fails the AP flips to AP-only setup
+       mode, and back to background once setup is done.
+     - bootTick() calls provisionPoll() too, so the portal is served
+       during every blocking wait.
+
+  2. ON8CIT styling on every web page.
+     - New branding.cpp owns the shared CSS and the broadcast-waves
+       SVG logo as exported strings. web.cpp (main UI) and
+       provision.cpp (setup portal + /save confirmation) both use it,
+       so the two paths cannot drift visually.
+     - Palette mirrors the OLED: #0b0d11 deep-black background,
+       #FFD400 yellow + #5ae3ff cyan wordmark, orange accent on card
+       titles, dark-glass cards, cyan interactive highlights.
+     - AP scan rows now include chN + RSSI in a right-aligned label,
+       consistent with the LCD.
+
+  3. Ctrl-C interrupts long CLI operations.
+     - ASCII 0x03 in cliPoll() is caught, echoed as ^C, and latches a
+       flag (cliCheckInterrupt()) that `reconnect`, `wifi scan-hard`
+       and `wifi connect` poll. Flag is cleared at the top of every
+       dispatch so stale ^Cs don't leak across commands.
+
+  4/4a. Editable station slots.
+     - Three-layer precedence: NVS override > SD /stations.csv >
+       compiled preset. stationsSetSlot / stationsResetSlot persist
+       per-slot friendly-name and URL overrides in the "stations" NVS
+       namespace.
+     - NVS-exhaustion fallback: on a failed putString, the highest-
+       indexed *other* override is dropped and the write retried, so
+       the slot being edited always wins. Implements "reduce stations
+       stored" on NVS pressure.
+     - audioStationDisplayName is three-layer too: override > ICY
+       station name (if currently playing) > URL-derived short name.
+     - Web UI: info button (circled i) on every station row opens a
+       themed modal with name + URL fields. Save / Reset / Cancel.
+       POST /api/station-edit.
+     - CLI: `station edit <n>` interactive prompt; `station reset <n>`.
+
+  5. Last-working saved network tried first.
+     - netConnect() stores the slot index that successfully joined in
+       NVS key "radio/lastwifi" on every success.
+     - Subsequent netConnect()s build their attempt order with that
+       slot promoted to position 0; the rest follow in saved order,
+       skipping the duplicate. The persistent list's order is
+       unchanged -- only the *try* order is re-ranked.
+
+  6. Leveled logging with verbose toggle.
+     - New log.h / log.cpp exposes LOG_BOOT / LOG_INFO / LOG_DEBUG /
+       LOG_ERROR. Every line gets a "[LEVEL] " prefix so downstream
+       tools can grep or colourise.
+     - logSetVerbose() / logVerbose() gate LOG_DEBUG emission (off by
+       default). CLI: `log verbose on | off`.
+     - Existing busy modules aren't migrated to LOG*() yet -- the
+       facade is available for new code and can be adopted
+       incrementally.
+
+  7. SD log rotation stubs.
+     - logSdBegin(path, maxBytes, keep) arms a mirror to a file on SD.
+       When the file passes maxBytes: log.txt -> log.txt.0 -> .1 ...
+       oldest dropped at `keep`.
+     - CLI: `log sd on | off | status`. Default off; real writes
+       start once storageSdMount() has succeeded and the user opts in.
+
+  8. Boot chirp is now CW "de ON8CIT" at 30 WPM.
+     - audioPlayCwString(text) plays any ASCII string via a compiled-
+       in A-Z + 0-9 table at the 40 ms dot-unit timing (30 WPM PARIS).
+       Spaces are 7-unit word gaps.
+     - audioPlayMorseR() is retained as a wrapper that calls
+       audioPlayCwString("de ON8CIT") so the existing setup() call
+       still works.
+
+  9. BSJ stream URL -- deferred, documented.
+     - Every direct-stream lookup for Best Smooth Jazz (bsj.fm,
+       bestsmoothjazz.com, tuneyou, zeno.fm) returned 403 to WebFetch
+       -- the stations gate the audio endpoint behind JavaScript /
+       bot detection. Station is hosted on Zeno.fm as
+       stream.zeno.fm/<hash>, but the hash is only in the live page's
+       DOM.
+     - Recipe for the user: open
+       https://zeno.fm/radio/bsj-fm-best-smooth-jazz/ in a browser,
+       open DevTools -> Network, click Play, copy the
+       stream.zeno.fm/... URL. Paste into any slot via the new web
+       info button or CLI `station edit <n>`. No firmware change
+       needed.
+
+
+== Changes made in this round (24-4-2026, part 2) ===============================
+
+
+== Changes made in this round (24-4-2026, part 2) ===============================
+
+  1. Empty-scan regression fixed.
+     - The previous round added a manual esp_wifi_set_config() tweak
+       to flip pmf_cfg.capable on the STA. arduino-esp32 v3.x already
+       sets PMF capable by default; the manual fiddle was redundant
+       and left the STA in a state where scanNetworks() returned 0
+       on some boots. Removed it -- country "01" and scan
+       parameters stay.
+     - netScanNow() now logs "net: scan found N network(s)" so a
+       no-results boot is visible without guessing.
+
+  2. "boot: L=0 M=0 R=0" flood fixed.
+     - The button diagnostic was firing every 2 s, which meant a
+       steady stream of lines whenever the device sat on the setup
+       screen. Reworked to edge-triggered: idle is silent, each
+       button press emits one line, each release emits one more.
+       Same debug value, zero noise at rest.
+
+
+
+== Changes made in this round (24-4-2026) =======================================
+
+  1. Morse "R" -- faster chirp, same volume.
+     - Dot unit dropped from 120 ms to 40 ms. PARIS standard timing:
+       30 WPM = 50 units per word / 60 s * 30 = 25 units/s, so
+       1 unit = 40 ms.
+     - Volume stays at 2/5 (sample amplitude 4800 of 12000 max).
+     - Tail silence shortened to 120 ms so the whole chirp fits in
+       ~560 ms of audio + tail.
+
+  2. CLI is now live during every boot-time blocking wait.
+     - bootTick() now calls cliPoll() alongside the input / dim /
+       reboot-combo checks. That makes the serial CLI usable during:
+         (a) the 4 s scan review window,
+         (b) every per-slot connect attempt (via netAbortOnRightButton),
+         (c) the setup-mode idle loop (cliWaitForNewNetwork),
+         (d) all of the above even while the phone is banging on the
+             captive-portal AP.
+     - Effect: `sleep`, `reboot`, `wifi add`, `wifi connect`, `cancel`
+       etc. work from the prompt at any point after power-on.
+
+  3. Pixel hotspot still invisible -- more CLI tools to attack it.
+     - All the firmware-side fixes from the previous round remain in
+       place (country "01", PMF capable, showHidden scan, 300 ms
+       channel dwell). They broaden what the radio *can* see / join;
+       they don't force a phone AP that isn't beaconing to appear.
+     - Two new CLI commands for the tail of the debug funnel:
+         * `wifi scan-hard` (alias `rescan`) -- three back-to-back
+           scans with a 500 ms gap. Phone hotspots beacon only every
+           ~2 s, so a single pass can genuinely miss them.
+         * `wifi connect <ssid> [password]` -- force-try an SSID
+           without relying on the scan. Supports quoted SSIDs with
+           spaces. If the association succeeds it offers to save.
+     - Empty-scan output now prints the on-phone checklist
+       (2.4 GHz / WPA2 or WPA2-3 / toggle hotspot to refresh beacon).
+       The LCD scan screen has shown the same tips since last round.
+     - If after all this the radio still can't see or associate with
+       the Pixel hotspot, the explanation is almost certainly:
+         (a) AP Band set to 5 GHz -- ESP32-S3 is 2.4 GHz only; the
+             only fix is on the phone.
+         (b) Security set to WPA3-Personal *only*. Switch to WPA2, or
+             enable "Extend compatibility" if the Pixel offers it.
+         (c) Auto-off-when-idle: keep the laptop connected while you
+             try to join with the radio, or disable the timeout in
+             hotspot settings.
+     - Pixel 8 path: Settings -> Network & internet -> Hotspot &
+       tethering -> Wi-Fi hotspot -> AP Band -> 2.4 GHz preferred,
+       Security -> WPA2-Personal (or WPA3 with compat).
+
+  4. WiFi scan now shows channel.
+     - ScanResult gained a uint8_t channel, populated from
+       WiFi.channel(i) in netScanNow().
+     - CLI `wifi scan` / `wifi scan-hard` prints a "chNN" column
+       between RSSI and the security label.
+     - LCD scan screen shows the same "chNN" in cyan before each
+       SSID so you can see at a glance if anything is beaconing on
+       12 / 13.
+
+  5. "Stuck on setup screen" escape hatches.
+     - New top-level CLI commands: `cancel` (alias `exit`). Sets a
+       flag that makes cliWaitForNewNetwork() return immediately
+       without a new saved network. The orchestrator then falls back
+       into netConnect(); if nothing joins, we drop into setup again
+       -- but at least the user is not trapped.
+     - bootTick() now prints a low-rate diagnostic line every 2 s,
+       "boot: L=0 M=0 R=0", so "my buttons don't work" reports can
+       be debugged: if the line never prints, bootTick isn't running;
+       if it prints with the expected 1-on-press transitions,
+       inputPoll is fine and the bug is in dispatch; if a held
+       button never shows 1, the GPIO isn't seeing the press.
+     - The setup-mode prompt now explicitly lists all three ways
+       out: `wifi add`, `wifi connect <ssid> [pass]`, or `cancel`.
+
+
+== Changes made in earlier round (23-4-2026) ====================================
+
+  1. CLI commands + subcommands are now case-insensitive.
+     - Top-level commands already used eqi() (case-insensitive). The
+       bug was in the subcommand dispatch: `arg.startsWith("add")`
+       and friends were case-sensitive, so `wifi ADD foo` or
+       `SD reload` silently failed.
+     - Added splitArg(arg, first, rest) in cli.cpp so every
+       subcommand gets an eqi() match. Remainders (SSIDs, URLs,
+       paths, passwords) stay case-preserving.
+     - Added `wifi rm` / `wifi del` as aliases for `wifi remove`,
+       and `wifi mv` for `wifi move`. `wifi show` now aliases
+       `wifi list`.
+
+  2. Pixel hotspot STA-side fixes.
+     - The radio is the STA trying to join the phone's hotspot.
+       Three firmware-side fixes applied:
+         (a) Regulatory domain. WiFi.begin() defaults to US channels
+             1..11; Pixel hotspots often pick ch 12 or 13.
+             netBegin() now calls esp_wifi_set_country() with the
+             ITU "01" world code (schan=1, nchan=13) so the full
+             2.4 GHz band is visible.
+         (b) PMF / WPA3. Pixel 8 hotspots frequently offer
+             WPA3-Personal which requires Protected Management
+             Frames. STA is tagged pmf_cfg.capable = true so we can
+             associate with WPA3/PMF networks (and still with WPA2).
+         (c) Scan covers more APs. netScanNow() now does an active
+             scan with showHidden=true and a 300 ms per-channel
+             dwell, so slow-beacon / probe-reply APs show up too.
+
+  3. Deep sleep before WiFi now works.
+     - The blocking waits in setup() never called inputPoll(), so
+       the Left-button sleep request was ignored until loop()
+       started. bootTick() centralises the "always works" behaviours
+       and is plumbed into every blocking wait.
+
+  4. Backlight dimming also works before WiFi.
+     - Same bootTick() helper drives displayBacklightTick.
+
+  5. "Untested features" flagged.
+
+
+== Changes made in earlier round (22/23-4-2026) =================================
+
+  1. Deep sleep + L+R reboot now work (first iteration).
+  2. "Last joined" mark in `wifi list`.
+  3. mDNS heartbeat.
+  4. Theme INI from SD.
+  5. Touch driver scaffold (flag-gated XPT2046).
+  6. Stations on SD.
+  7. Backlight dim-on-idle.
+  8. mDNS during AP provisioning.
+  9. Finer volume (0..21 on web, 1..5 on buttons).
+ 10. 3-band EQ in web UI.
+ 11. `sd status` / `sd ls` / `sd reload` CLI.
+
+
+== Open / next up ===============================================================
+
+Follow-ups that would build naturally on what's in now:
+
+A. Web-based station editor.
+   - /stations page with add / remove / edit / drag-reorder; POST
+     /api/stations persists back to /stations.csv on SD. CLI + preset
+     fallback stays for when the card is pulled.
+
+B. Web-based WiFi management.
+   - Mirror the CLI's wifi add/remove/move/clear on /wifi.
+
+C. Touch calibration.
+   - If touch hardware is populated, touch.cpp uses placeholder
+     mapping. A /touch_calibrate page that walks the user through 4
+     corner taps, then writes measured min/max to NVS or /touch.ini.
+
+D. Theme hot-reload from the web UI.
+   - Upload a theme.ini via web and call displayLoadThemeFromSd
+     immediately; no reboot needed.
+
+E. Recording.
+   - Tee in the audio path that dumps raw stream chunks to SD with an
+     index sidecar, plus a /recordings web page. Substantial.
+
+F. Scrollable long SSID list in the AP portal.
+   - Search / filter input at the top.
+
+G. Proper boot-screen logo.
+   - Swap drawLogo() for a drawRGBBitmap on a 32x32 / 48x48 asset.
+
+H. Battery-aware behaviour.
+   - Warn / dim / auto-sleep below ~3.2 V.
+
+I. State-push web UI.
+   - WebSocket at /ws pushing /api/state deltas every ~500 ms.
+     Needs AsyncWebServer dep.
+
+J. Central theme + layout registry.
+   - Put layout offsets in the Theme struct so /theme.ini can
+     restyle more than colours.
+
+
+== Completed in earlier rounds (kept for history) ===============================
+
+22-4-2026 Updates block:
+  * Reduce boot Morse "R" volume to level 2.   Done.
+  * Auto-reboot after AP-based save.           Done.
+  * L+R 3 s reboot combo.                      Done (re-fixed later).
+  * Persist volume + station across reboots.   Done (EQ added later).
+  * Rename AP to ON8CIT-WinRadio-Setup.        Done.
+  * LAN web control + mDNS discovery.          Done.
+  * OLED: splash + banner + Now Playing card.  Done.
+
+21-4-2026 WiFi Connection Logic:
+  * Multiple saved networks tried in order.    Done.
+  * Boot-time WiFi scan on LCD.                Done.
+  * Right button pre-connect -> setup mode.    Done.
+  * CLI + AP captive portal provisioning.      Done.
