@@ -23,3 +23,6 @@ desktop.ini
 *.swp
 *.swo
 *~
+
+# Local handover / handoff notes (not for committing -- migrate by hand)
+HANDOVER.md
