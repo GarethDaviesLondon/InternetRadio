@@ -12,6 +12,7 @@ top-level [README](../README.md) for a quick overview, then dive in here.
 | [HTTP API](api.md)                   | Endpoints exposed by the on-device web server (the `/api/*` routes) |
 | [Hardware](hardware.md)              | Board variants, pin map, build envs (incl. the rotated-panel variant) |
 | [Architecture](architecture.md)      | Module map, threading, NVS schema, source-file responsibilities |
+| [Layers & innovation](innovation.md) | What's genuinely new in this build; how Claude.ai was used as a co-worker; the hackathon overnight-batch work plan |
 | [Building](building.md)              | PlatformIO setup, build flags, ccache, common pitfalls |
 
 ## Conventions

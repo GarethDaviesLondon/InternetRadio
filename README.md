@@ -61,7 +61,18 @@ For everything else, see [`docs/`](docs/README.md).
 | [docs/api.md](docs/api.md)               | HTTP API (`/api/state`, `/api/station`, ...) |
 | [docs/hardware.md](docs/hardware.md)     | Pin map, IMU detection, build variants |
 | [docs/architecture.md](docs/architecture.md) | Module map, threading, NVS schema |
+| [docs/innovation.md](docs/innovation.md) | Layered architecture, what's new, Claude.ai as a co-worker, hackathon overnight-batch plan |
 | [docs/building.md](docs/building.md)     | PlatformIO setup, ccache, troubleshooting |
+
+## Built with Claude.ai
+
+This project was built as a pair-programming exercise with
+[Claude.ai](https://claude.ai/) (Sonnet/Opus 4.x) used as a co-worker
+tool: brainstorming architecture, drafting C++ modules, doing
+multi-file refactors, writing the docs in this repo. See
+[docs/innovation.md](docs/innovation.md) for what was accelerated and
+how, plus the **hackathon overnight-batch plan** that drives Friday +
+Saturday-night unattended task runs.
 
 ## Highlights
 

@@ -1,6 +1,41 @@
 ON8CIT WebRadio -- to-do list (newest on top, completed work at the bottom)
 
 
+== Hackathon work plan (parked, NOT for the next agent run) =====================
+
+Two overnight Claude.ai batch windows during the hackathon weekend
+(Friday + Saturday nights). See docs/innovation.md section 4 for the
+full plan; short version:
+
+  Friday day  -- live pair work, ideas land in this file (above this
+                  parked block, in a fresh round header).
+  Friday eve  -- 1-2 h pre-screen with Claude. Promote ideas to a
+                  Friday-night batch using the rubric in
+                  docs/innovation.md (self-contained, reversible,
+                  testable, bounded, pre-flighted).
+  Friday nt   -- queue executes unattended. Each task: explicit
+                  file paths + constraints + negative-space rules +
+                  output-format requirement.
+  Sat morning -- review/integrate Friday-night commits; revisions
+                  go to Saturday's list.
+  Sat day     -- live integration, demo prep, hardware testing.
+  Sat eve     -- smaller polish-focused pre-screen for the
+                  Saturday-night batch.
+  Sat night   -- final batch executes.
+  Sun morning -- integrate, dry-run demo, submit.
+
+Candidate batch items (placeholder; assemble for real on Friday eve):
+  - /api/state long-poll for live home-page updates
+  - Scheduled wake (RTC alarm) + "wake at HH:MM" CLI/web setting
+  - Station-favicon cache to PSRAM + home-page display
+  - OTA update via CLI + web button
+  - Now-playing-history log to SD + web viewer
+
+DON'T expect the next agent run to pick these up automatically.
+They're the hackathon agenda, queued behind a deliberate pre-screen
+gate.
+
+
 == Changes made in this round (8-5-2026) ========================================
 
 Sensitivity + control polish
